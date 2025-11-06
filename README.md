@@ -55,6 +55,10 @@ sequenceDiagram
 * **対象 GitHub リポジトリ**：権限を判定する *1 リポジトリ*
 * （プライベートリポ想定）OAuth スコープ **`repo`** を要求
 
+## 環境情報
+
+- [SECRET.json](/SECRET.json)
+
 ---
 
 ## クイックスタート
@@ -69,8 +73,11 @@ cd api
 npm install
 cd ..
 
-# 3) SWA CLI で起動（任意）
-# npx swa start
+# 3) フロントエンド（`web/` 以下）の静的コンテンツを編集
+#    例: web/index.html
+
+# 4) SWA CLI で起動（任意）
+# npx swa start --app-location web --api-location api
 ```
 
 1. **GitHub OAuth App** の Client ID/Secret を取得
@@ -80,7 +87,7 @@ cd ..
    * `GITHUB_CLIENT_SECRET` = (Client Secret)
    * `GITHUB_CLIENT_SECRET_APP_SETTING_NAME` = `GITHUB_CLIENT_SECRET`
    * `REPO_OWNER` / `REPO_NAME` = 対象リポ（Functions 用）
-3. `staticwebapp.config.json` を配置してデプロイ
+3. `staticwebapp.config.json` をルートに配置（`routes` や `rolesSource` を設定）し、`appLocation: "web"` でデプロイ
 4. ログイン → `/.auth/me` で `userRoles` に `admin|write|read` が付与されているか確認
 
 ---
@@ -112,6 +119,10 @@ cd ..
     { "route": "/readers/*",     "allowedRoles": ["admin","write","read"] },
     { "route": "/",              "allowedRoles": ["authenticated"], "rewrite": "/index.html" }
   ],
+  "navigationFallback": {
+    "rewrite": "/index.html",
+    "exclude": ["/api/*"]
+  },
   "responseOverrides": {
     "401": {
       "statusCode": 302,
@@ -300,7 +311,7 @@ MIT（予定）
 
 ```
 .
-├─ src/                       # フロントエンド（任意のフレームワーク）
+├─ web/                       # SWA に配信する静的コンテンツ（index.html など）
 ├─ api/
 │  └─ GetRoles/
 │     ├─ function.json
