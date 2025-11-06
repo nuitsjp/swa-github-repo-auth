@@ -20,8 +20,12 @@
       "allowedRoles": ["anonymous", "authorized"]
     },
     {
-      "route": "/.auth/*",
+      "route": "/.auth/logout",
       "allowedRoles": ["anonymous", "authorized"]
+    },
+    {
+      "route": "/.auth/*",
+      "allowedRoles": ["authorized"]
     },
     {
       "route": "/*",
