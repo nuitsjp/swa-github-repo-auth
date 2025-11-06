@@ -1,111 +1,192 @@
-# SWA GitHub Repo Roles (GitHub リポ権限ベース認可 for Azure Static Web Apps)
+# Azure Static Web Apps - GitHubリポジトリドキュメント公開システム実装ガイド
 
-> **目的**: Azure Static Web Apps (SWA) で GitHub の**特定リポジトリに対する権限（admin / write / read）**を元にアクセスを制御する。
-> **構成**: カスタム GitHub OAuth + `rolesSource`（Node.js Azure Functions）+ `staticwebapp.config.json` の `allowedRoles`
+Private/InternalなGitHubリポジトリのドキュメントをAzure Static Web Appsで公開し、リポジトリのread権限を持つユーザーのみにアクセスを許可するシンプルな実装ガイドです。
 
----
+## システム概要
 
-## 目次
-
-* [アーキテクチャ](#アーキテクチャ)
-* [前提条件](#前提条件)
-* [クイックスタート](#クイックスタート)
-* [SWA 設定 (`staticwebapp.config.json`)](#swa-設定-staticwebappconfigjson)
-* [ロール割当 Function 実装（Node.js）](#ロール割当-function-実装nodejs)
-* [ルート／API の保護](#ルートapi-の保護)
-* [ローカル開発 & 検証](#ローカル開発--検証)
-* [トラブルシュート](#トラブルシュート)
-* [セキュリティとベストプラクティス](#セキュリティとベストプラクティス)
-* [ライセンス](#ライセンス)
-
----
+- **目的**: Private/Internalリポジトリのドキュメントを、権限を持つユーザーのみに公開
+- **認証方式**: GitHub OAuth（リポジトリread権限の確認）
+- **アクセス制御**: サイト全体が認証必須（read権限がある＝全体アクセス可）
+- **必要プラン**: Azure Static Web Apps Standard（月額$9）
 
 ## アーキテクチャ
 
 ```mermaid
 sequenceDiagram
     participant User
-    participant StaticWebApp
+    participant SWA as Static Web App
     participant GitHub
-    participant RolesFunction
-    participant GitHubAPI
+    participant CheckAccess as CheckAccess Function
+    participant GitHubAPI as GitHub API
 
-    User->>StaticWebApp: 保護ページへアクセス
-    StaticWebApp-->>User: GitHub ログインへリダイレクト (/.auth/login/github)
-    User->>GitHub: 認証/同意
-    GitHub-->>StaticWebApp: OAuth コールバック (code)
-    StaticWebApp->>GitHub: access token 取得
-    StaticWebApp->>RolesFunction: POST { user, accessToken }
-    RolesFunction->>GitHubAPI: 対象リポの permissions 取得
-    GitHubAPI-->>RolesFunction: { admin/push/pull }
-    RolesFunction-->>StaticWebApp: { "roles": ["admin" | "write" | "read" | ...] }
-    StaticWebApp->>User: ログイン完了（ロール付与）
-    User->>StaticWebApp: 保護リソース/API 要求
-    StaticWebApp->>StaticWebApp: allowedRoles で認可判定
-    StaticWebApp-->>User: 許可／拒否
+    User->>SWA: サイトへアクセス
+    SWA-->>User: GitHubログインへリダイレクト
+    User->>GitHub: 認証
+    GitHub-->>SWA: OAuth callback
+    SWA->>CheckAccess: POST {accessToken, userDetails}
+    CheckAccess->>GitHubAPI: リポジトリアクセス確認
+    GitHubAPI-->>CheckAccess: 200 OK または 404
+    CheckAccess-->>SWA: {roles: ["authorized"] or []}
+    SWA-->>User: アクセス許可/拒否
 ```
 
----
+## プロジェクト構造
 
-## 前提条件
-
-* **Azure Static Web Apps: Standard プラン**（カスタム認証・`rolesSource` 必須）
-* **GitHub OAuth App**（Callback URL: `https://<YOUR-SWA>.azurestaticapps.net/.auth/login/github/callback`）
-* **Azure Functions (Node.js)**：SWA の `api/` でホスト
-* **対象 GitHub リポジトリ**：権限を判定する *1 リポジトリ*
-* （プライベートリポ想定）OAuth スコープ **`repo`** を要求
-
-## 環境情報
-
-- [SECRET.json](/SECRET.json)
-
----
-
-## クイックスタート
-
-```bash
-# 1) リポジトリをクローン
-git clone <this-repo>
-cd <this-repo>
-
-# 2) Functions 依存パッケージ（Octokit 等）
-cd api
-npm install
-cd ..
-
-# 3) フロントエンド（`web/` 以下）の静的コンテンツを編集
-#    例: web/index.html
-
-# 4) SWA CLI で起動（任意）
-# npx swa start --app-location web --api-location api
+```
+your-docs-site/
+├── docs/                        # 公開するドキュメント
+│   ├── index.html
+│   └── *.md / *.html
+├── api/
+│   ├── src/
+│   │   └── functions/
+│   │       └── checkAccess.js  # 権限確認Function
+│   ├── package.json
+│   ├── host.json
+│   └── local.settings.json     # ローカル環境変数
+├── staticwebapp.config.json    # SWA設定
+└── package.json
 ```
 
-1. **GitHub OAuth App** の Client ID/Secret を取得
-2. **SWA の App Settings** に以下を登録
+## 実装手順
 
-   * `GITHUB_CLIENT_ID` = (Client ID)
-   * `GITHUB_CLIENT_SECRET` = (Client Secret)
-   * `GITHUB_CLIENT_SECRET_APP_SETTING_NAME` = `GITHUB_CLIENT_SECRET`
-   * `REPO_OWNER` / `REPO_NAME` = 対象リポ（Functions 用）
-3. `staticwebapp.config.json` をルートに配置（`routes` や `rolesSource` を設定）し、`appLocation: "web"` でデプロイ
-4. ログイン → `/.auth/me` で `userRoles` に `admin|write|read` が付与されているか確認
+### 1. GitHub OAuth Appの作成
 
----
+1. GitHub > Settings > Developer settings > OAuth Apps > New OAuth App
+2. 以下を設定:
+   - Application name: `Your Docs Site`
+   - Homepage URL: `https://your-site.azurestaticapps.net`
+   - Authorization callback URL: `https://your-site.azurestaticapps.net/.auth/login/github/callback`
+3. Client IDとClient Secretを保存
 
-## SWA 設定 (`staticwebapp.config.json`)
+### 2. Azure Functions実装（api/src/functions/checkAccess.js）
 
-> SWA の組み込み GitHub 認証を**自前 OAuth App**に切替え、ログイン毎に `rolesSource` を呼び出して**カスタムロール**を付与します。
+```javascript
+const { app } = require('@azure/functions');
+const axios = require('axios');
+
+// 環境変数から対象リポジトリ情報を取得
+const REPO_OWNER = process.env.GITHUB_REPO_OWNER;
+const REPO_NAME = process.env.GITHUB_REPO_NAME;
+
+app.http('CheckAccess', {
+  methods: ['POST'],
+  authLevel: 'anonymous',
+  handler: async (request, context) => {
+    try {
+      const userInfo = await request.json();
+      
+      // GitHub認証でない場合は拒否
+      if (userInfo.identityProvider !== 'github') {
+        return { status: 200, jsonBody: { roles: [] } };
+      }
+
+      const accessToken = userInfo.accessToken;
+      if (!accessToken) {
+        context.log('No access token provided');
+        return { status: 200, jsonBody: { roles: [] } };
+      }
+
+      // リポジトリへのアクセスを確認
+      const hasAccess = await checkRepositoryAccess(
+        REPO_OWNER,
+        REPO_NAME,
+        accessToken,
+        context
+      );
+
+      // アクセス権がある場合はauthorizedロールを付与
+      const roles = hasAccess ? ['authorized'] : [];
+      
+      context.log(`User ${userInfo.userDetails}: access ${hasAccess ? 'granted' : 'denied'}`);
+      return { status: 200, jsonBody: { roles } };
+
+    } catch (error) {
+      context.error('Error in CheckAccess:', error);
+      // エラー時は安全側に倒してアクセス拒否
+      return { status: 200, jsonBody: { roles: [] } };
+    }
+  }
+});
+
+async function checkRepositoryAccess(owner, repo, token, context) {
+  try {
+    // リポジトリ情報を取得（アクセス権がなければ404エラー）
+    const response = await axios.get(
+      `https://api.github.com/repos/${owner}/${repo}`,
+      {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Accept': 'application/vnd.github+json'
+        }
+      }
+    );
+    
+    // レスポンスが返ってきた = read権限あり
+    return true;
+    
+  } catch (error) {
+    if (error.response?.status === 404) {
+      // 404 = アクセス権なし
+      context.log('Repository access denied (404)');
+      return false;
+    }
+    // その他のエラーも安全のためアクセス拒否
+    context.error('GitHub API error:', error.message);
+    return false;
+  }
+}
+```
+
+### 3. package.json設定（api/package.json）
+
+```json
+{
+  "name": "swa-docs-api",
+  "version": "1.0.0",
+  "main": "src/functions/*.js",
+  "dependencies": {
+    "@azure/functions": "^4.0.0",
+    "axios": "^1.6.0"
+  },
+  "devDependencies": {
+    "azure-functions-core-tools": "^4.x"
+  }
+}
+```
+
+### 4. Azure Functions設定（api/host.json）
+
+```json
+{
+  "version": "2.0",
+  "logging": {
+    "applicationInsights": {
+      "samplingSettings": {
+        "isEnabled": true,
+        "excludedTypes": "Request"
+      }
+    }
+  },
+  "extensionBundle": {
+    "id": "Microsoft.Azure.Functions.ExtensionBundle",
+    "version": "[4.*, 5.0.0)"
+  }
+}
+```
+
+### 5. SWA設定（staticwebapp.config.json）
 
 ```json
 {
   "$schema": "https://json.schemastore.org/staticwebapp.config.json",
   "auth": {
-    "rolesSource": "/api/GetRoles",
+    "rolesSource": "/api/CheckAccess",
     "identityProviders": {
       "github": {
         "registration": {
           "clientIdSettingName": "GITHUB_CLIENT_ID",
-          "clientSecretSettingName": "GITHUB_CLIENT_SECRET_APP_SETTING_NAME"
+          "clientSecretSettingName": "GITHUB_CLIENT_SECRET"
         },
         "login": {
           "scopes": ["repo"]
@@ -114,212 +195,290 @@ cd ..
     }
   },
   "routes": [
-    { "route": "/admin/*",       "allowedRoles": ["admin"] },
-    { "route": "/contributors/*","allowedRoles": ["admin","write"] },
-    { "route": "/readers/*",     "allowedRoles": ["admin","write","read"] },
-    { "route": "/",              "allowedRoles": ["authenticated"], "rewrite": "/index.html" }
+    {
+      "route": "/.auth/login/github",
+      "allowedRoles": ["anonymous", "authorized"]
+    },
+    {
+      "route": "/.auth/*",
+      "allowedRoles": ["anonymous", "authorized"]
+    },
+    {
+      "route": "/*",
+      "allowedRoles": ["authorized"]
+    }
   ],
-  "navigationFallback": {
-    "rewrite": "/index.html",
-    "exclude": ["/api/*"]
-  },
   "responseOverrides": {
     "401": {
       "statusCode": 302,
       "redirect": "/.auth/login/github?post_login_redirect_uri=.referrer"
-    }
-  }
-}
-```
-
-> **注意**: `clientSecretSettingName` は**設定キー名**であり、**秘密値そのものではありません**。`GITHUB_CLIENT_SECRET` を別途 App Settings に作成し、そのキー名をここで参照します。
-
----
-
-## ロール割当 Function 実装（Node.js）
-
-> `api/GetRoles/index.js`：GitHub トークンで対象リポの **permissions**（`admin`/`push`/`pull`）を取得 → 最上位ロールを 1 つ返却（必要なら複数付与でも可）
-
-**ディレクトリ構成（抜粋）**
-
-```
-/api
-  /GetRoles
-    function.json
-    index.js
-  package.json
-```
-
-**`api/GetRoles/function.json`**
-
-```json
-{
-  "bindings": [
-    {
-      "authLevel": "anonymous",
-      "type": "httpTrigger",
-      "direction": "in",
-      "name": "req",
-      "methods": [ "post" ],
-      "route": "GetRoles"
     },
-    {
-      "type": "http",
-      "direction": "out",
-      "name": "res"
+    "403": {
+      "statusCode": 403,
+      "statusDescription": "Access Denied",
+      "body": "<!DOCTYPE html><html><head><title>Access Denied</title></head><body><h1>Access Denied</h1><p>You don't have permission to access this repository documentation.</p></body></html>"
     }
-  ]
+  },
+  "navigationFallback": {
+    "rewrite": "/index.html",
+    "exclude": ["/api/*", "/.auth/*", "/images/*", "*.{css,js,json}"]
+  },
+  "globalHeaders": {
+    "X-Frame-Options": "SAMEORIGIN",
+    "X-Content-Type-Options": "nosniff",
+    "Strict-Transport-Security": "max-age=31536000"
+  }
 }
 ```
 
-**`api/GetRoles/index.js`**
+### 6. 環境変数設定
 
-```js
-const { Octokit } = require("@octokit/rest");
-
-const REPO_OWNER = process.env.REPO_OWNER || "<YOUR_ORG_OR_USERNAME>";
-const REPO_NAME  = process.env.REPO_NAME  || "<TARGET_REPO_NAME>";
-
-module.exports = async function (context, req) {
-  const user = req.body || {};
-  const token = user.accessToken;        // SWA から渡される GitHub アクセストークン
-  const githubUsername = user.userDetails; // 参考: GitHub username
-
-  let roles = [];
-  if (!token) {
-    context.log("No GitHub access token provided to GetRoles.");
-  } else {
-    try {
-      const octokit = new Octokit({ auth: token });
-      const { data: repo } = await octokit.repos.get({
-        owner: REPO_OWNER,
-        repo: REPO_NAME
-      });
-      if (repo.permissions) {
-        if (repo.permissions.admin) {
-          roles.push("admin");
-        } else if (repo.permissions.push) {
-          roles.push("write");
-        } else if (repo.permissions.pull) {
-          roles.push("read");
-        }
-      }
-    } catch (err) {
-      context.log.error("GitHub API error or access denied:", err.message);
-      // プライベートで非コラボレータ等 → 403/404 → ロール無し（認可不可）
-    }
-  }
-
-  context.res = {
-    status: 200,
-    headers: { "Content-Type": "application/json" },
-    body: { roles }
-  };
-};
-```
-
-**`api/package.json`（抜粋）**
+#### ローカル開発用（api/local.settings.json）
 
 ```json
 {
-  "name": "swa-github-repo-roles-api",
-  "private": true,
-  "version": "1.0.0",
-  "dependencies": {
-    "@octokit/rest": "^21.0.0"
+  "IsEncrypted": false,
+  "Values": {
+    "FUNCTIONS_WORKER_RUNTIME": "node",
+    "GITHUB_CLIENT_ID": "your-github-client-id",
+    "GITHUB_CLIENT_SECRET": "your-github-client-secret",
+    "GITHUB_REPO_OWNER": "your-org-or-username",
+    "GITHUB_REPO_NAME": "your-repo-name"
   }
 }
 ```
 
-> **環境変数**: `REPO_OWNER` / `REPO_NAME` は Functions へ流入（SWA の App Settings → Functions 環境）。
+**注意**: `local.settings.json`は必ず`.gitignore`に追加してください。
 
----
+#### 本番環境（Azure Portal）
 
-## ルート／API の保護
+Azure CLIで設定:
 
-* `allowedRoles` は **静的ルート** と **/api** の両方で機能
-* SWA は API 呼び出しに `x-ms-client-principal` を自動付与（Base64 JSON: `userDetails`, `userRoles` 等）
-* 関数側で必要なら復号して利用可能
+```bash
+az staticwebapp appsettings set \
+  --name your-swa-name \
+  --resource-group your-rg \
+  --setting-names \
+    GITHUB_CLIENT_ID="xxx" \
+    GITHUB_CLIENT_SECRET="yyy" \
+    GITHUB_REPO_OWNER="owner" \
+    GITHUB_REPO_NAME="repo"
+```
 
-**API 内でのユーザー参照（任意）**
+### 7. フロントエンド実装例（docs/index.html）
 
-```js
-const header = req.headers["x-ms-client-principal"];
-if (header) {
-  const decoded = Buffer.from(header, "base64").toString("utf-8");
-  const principal = JSON.parse(decoded);
-  // principal.userDetails / principal.userRoles
+```html
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Repository Documentation</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 20px;
+            line-height: 1.6;
+        }
+        .user-info {
+            background: #f6f8fa;
+            padding: 10px;
+            border-radius: 6px;
+            margin-bottom: 20px;
+        }
+        .logout-btn {
+            background: #d73a49;
+            color: white;
+            border: none;
+            padding: 5px 10px;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+    <div id="user-info" class="user-info"></div>
+    
+    <h1>📚 Repository Documentation</h1>
+    <p>This documentation is only accessible to users with read access to the repository.</p>
+    
+    <nav>
+        <ul>
+            <li><a href="/getting-started">Getting Started</a></li>
+            <li><a href="/api-reference">API Reference</a></li>
+            <li><a href="/contributing">Contributing Guide</a></li>
+        </ul>
+    </nav>
+
+    <script>
+        // ユーザー情報を表示
+        async function displayUserInfo() {
+            try {
+                const response = await fetch('/.auth/me');
+                const data = await response.json();
+                const user = data.clientPrincipal;
+                
+                if (user) {
+                    document.getElementById('user-info').innerHTML = `
+                        Logged in as: <strong>${user.userDetails}</strong>
+                        <button class="logout-btn" onclick="logout()">Logout</button>
+                    `;
+                }
+            } catch (error) {
+                console.error('Failed to get user info:', error);
+            }
+        }
+
+        function logout() {
+            window.location.href = '/.auth/logout?post_logout_redirect_uri=/';
+        }
+
+        // ページ読み込み時に実行
+        displayUserInfo();
+    </script>
+</body>
+</html>
+```
+
+## ローカル開発
+
+### セットアップ
+
+```bash
+# 1. 依存関係のインストール
+cd api
+npm install
+cd ..
+
+# 2. SWA CLIのインストール（グローバル）
+npm install -g @azure/static-web-apps-cli
+
+# 3. ローカル起動
+swa start docs --api-location api
+```
+
+### ローカルテスト
+
+1. http://localhost:4280 にアクセス
+2. 認証エミュレーターでログインテスト
+3. `/.auth/me`でロール確認
+
+## デプロイ
+
+### GitHub Actionsワークフロー（.github/workflows/azure-swa.yml）
+
+```yaml
+name: Deploy to Azure Static Web Apps
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    types: [opened, synchronize, reopened, closed]
+    branches: [ main ]
+
+jobs:
+  build_and_deploy:
+    runs-on: ubuntu-latest
+    name: Build and Deploy
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Deploy
+        uses: Azure/static-web-apps-deploy@v1
+        with:
+          azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          action: "upload"
+          app_location: "docs"
+          api_location: "api"
+          output_location: ""
+```
+
+## セキュリティ考慮事項
+
+### 必須設定
+
+1. **リポジトリをPrivate/Internalに設定**
+   - Publicリポジトリでは誰でもread権限を持つため不適切
+
+2. **OAuthスコープは`repo`を使用**
+   - Private/Internalリポジトリへのアクセス確認に必須
+
+3. **シークレットの管理**
+   - GitHub Client Secretは環境変数で管理
+   - ソースコードにハードコードしない
+
+4. **エラー時の動作**
+   - エラー時は常にアクセス拒否（fail-safe）
+   - エラーメッセージで詳細情報を漏らさない
+
+### レート制限対策
+
+GitHub APIのレート制限（認証済み: 5,000/時）を考慮し、必要に応じてキャッシュを実装:
+
+```javascript
+// 簡易的なメモリキャッシュの例
+const cache = new Map();
+const CACHE_TTL = 5 * 60 * 1000; // 5分
+
+async function checkRepositoryAccessWithCache(owner, repo, token, context) {
+  const cacheKey = `${token}:${owner}/${repo}`;
+  const cached = cache.get(cacheKey);
+  
+  if (cached && cached.expires > Date.now()) {
+    context.log('Using cached access result');
+    return cached.hasAccess;
+  }
+  
+  const hasAccess = await checkRepositoryAccess(owner, repo, token, context);
+  
+  cache.set(cacheKey, {
+    hasAccess,
+    expires: Date.now() + CACHE_TTL
+  });
+  
+  return hasAccess;
 }
 ```
 
----
+## トラブルシューティング
 
-## ローカル開発 & 検証
+### よくある問題と解決方法
 
-* **SWA CLI**: `npx swa start`
+| 問題 | 原因 | 解決方法 |
+|-----|------|---------|
+| ログインループ | rolesSource設定ミス | `/api/CheckAccess`のパスを確認 |
+| 常に403エラー | GitHub権限不足 | リポジトリのコラボレーター設定を確認 |
+| 404エラー | API Function未デプロイ | apiフォルダが正しくデプロイされているか確認 |
+| スコープエラー | OAuthスコープ不足 | staticwebapp.config.jsonで`repo`スコープを設定 |
+| 環境変数エラー | 設定名の不一致 | Azure Portalの環境変数名を確認 |
 
-  * ローカルでフロント＋Functions を起動
-  * 認証エミュレーターでダミーロールを付与しルール検証可
-* **動作確認**:
+### ログの確認方法
 
-  1. GitHub でログイン
-  2. `/.auth/me` を開き `userRoles` を確認
-  3. `/admin/*` などをアクセスして認可動作を確認
-
----
-
-## トラブルシュート
-
-* **ログイン後にロールが付かない**
-
-  * `rolesSource` ルートが正しくデプロイされているか
-  * Functions のログに GitHub API エラー（403/404）が出ていないか
-  * OAuth スコープ `repo` が付与されているか（プライベートリポ）
-* **すべて 401 になる**
-
-  * `allowedRoles` が厳しすぎないか（最低限 `authenticated` で表示すべきページの確認）
-  * `responseOverrides.401.redirect` の指定でループしていないか
-* **Functions に到達しない**
-
-  * API ルートにも `allowedRoles` を設定している場合、事前認可で弾かれていないか
-  * `rolesSource` の実行は**ログイン時のみ**。通常の API 呼び出しは別経路
-* **公開リポで誰でも read になってしまう**
-
-  * `repo.permissions.pull` はパブリックで true になり得る
-  * 「コラボレータのみ」を想定する場合は**リポが private であることを要件化**、または `collaborators` API を併用し明示判定
-
----
-
-## セキュリティとベストプラクティス
-
-* **秘密情報は App Settings / Key Vault** に保存（`clientSecretSettingName` は**キー名参照**）
-* **最小権限**: 守るべきページは `authenticated` ではなく**カスタムロール**で保護
-* **キャッシュ**: ログイン時のみ実行のため通常不要だが、大量アクセスで最適化したい場合は短期キャッシュも検討
-* **監査**: Functions の `context.log` で権限判定結果・失敗要因を記録
-* **プラン**: カスタム認証／`rolesSource` は Standard プラン必須
-
----
-
-## ライセンス
-
-MIT（予定）
-※本リポジトリのコード例は自己責任でご利用ください。GitHub API 利用規約および組織のセキュリティポリシーに従って運用してください。
-
----
-
-### 付録：想定リポ構成
-
-```
-.
-├─ web/                       # SWA に配信する静的コンテンツ（index.html など）
-├─ api/
-│  └─ GetRoles/
-│     ├─ function.json
-│     └─ index.js
-│  └─ package.json
-├─ staticwebapp.config.json
-├─ README.md
-└─ LICENSE
+```bash
+# Azure CLIでFunction logsを確認
+az staticwebapp functions logs show \
+  --name your-swa-name \
+  --resource-group your-rg
 ```
 
----
+## まとめ
+
+このシンプルな実装により、以下を実現できます：
+
+✅ **Private/Internalリポジトリのドキュメントを安全に公開**
+- リポジトリへのread権限を持つユーザーのみアクセス可能
+
+✅ **GitHubを唯一の認証基盤として使用**
+- 追加のユーザー管理不要
+- リポジトリのコラボレーター管理と完全に同期
+
+✅ **最小限の実装で運用可能**
+- 1つのAzure Function
+- シンプルな設定ファイル
+- 明確なアクセス制御（あり/なしの2択）
+
+この構成により、組織内のドキュメント共有を効率的かつセキュアに実現できます。
