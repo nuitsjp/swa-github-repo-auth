@@ -1,6 +1,10 @@
 SECRET.md
 SECRET.json
 
+# Local tooling artifacts
+.swa/
+api/local.settings.json
+
 # Logs
 logs
 *.log

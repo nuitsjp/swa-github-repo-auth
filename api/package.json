@@ -1,0 +1,14 @@
+{
+  "name": "swa-github-roles-provider-api",
+  "version": "1.0.0",
+  "description": "Azure Functions backend for GitHub role validation.",
+  "main": "CheckAccess/index.js",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@azure/functions": "^4.4.0",
+    "axios": "^1.6.7"
+  }
+}
