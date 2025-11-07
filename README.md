@@ -356,7 +356,7 @@ cd ..
 npm install -g @azure/static-web-apps-cli
 
 # 3. ローカル起動
-swa start docs --api-location api
+npx swa start --app-location docs --api-location api --swa-config staticwebapp.config.json
 ```
 
 ### ローカルテスト
