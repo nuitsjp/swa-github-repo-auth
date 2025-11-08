@@ -65,35 +65,6 @@ function Write-Info {
     Write-Host "[INFO] $Message" -ForegroundColor Cyan
 }
 
-# npm 依存関係のインストールを確認・実行する関数
-# 既に node_modules が存在する場合はスキップ（-ForceInstall で強制再インストール可能）
-function Ensure-NpmDependencies {
-    param(
-        [Parameter(Mandatory)] [string]$WorkingDirectory,
-        [Parameter(Mandatory)] [string]$Label,
-        [switch]$ForceInstall
-    )
-
-    $nodeModules = Join-Path $WorkingDirectory 'node_modules'
-    if ((Test-Path $nodeModules) -and -not $ForceInstall) {
-        Write-Info "$Label dependencies already installed. Skipping."
-        return
-    }
-
-    if ($ForceInstall -and (Test-Path $nodeModules)) {
-        Write-Info "Force specified. Removing existing node_modules for $Label before reinstalling."
-        Remove-Item -Path $nodeModules -Recurse -Force -ErrorAction SilentlyContinue
-    }
-
-    Push-Location $WorkingDirectory
-    try {
-        Write-Info "Running 'npm install' for $Label."
-        npm install | Out-Null
-    }
-    finally {
-        Pop-Location
-    }
-}
 
 # Git リポジトリのルート名を取得する関数
 # git コマンドが利用できない場合は現在のディレクトリ名を使用
@@ -105,38 +76,6 @@ function Resolve-RepoName {
     return (Split-Path $repoRoot -Leaf)
 }
 
-# Azure CLI (az) の存在確認
-function Ensure-AzCli {
-    if (-not (Get-Command az -ErrorAction SilentlyContinue)) {
-        throw "Azure CLI (az) is required. Install it from https://learn.microsoft.com/cli/azure/install-azure-cli"
-    }
-}
-
-# Azure Static Web Apps CLI 拡張機能のインストール・確認
-# -ForceInstall で既存拡張機能を削除して再インストール
-function Ensure-StaticWebAppsExtension {
-    param([switch]$ForceInstall)
-
-    $extensionInstalled = $false
-    $null = az extension show --name staticwebapp 2>$null
-    if ($LASTEXITCODE -eq 0) {
-        $extensionInstalled = $true
-    }
-
-    if ($ForceInstall -and $extensionInstalled) {
-        Write-Info 'Force specified. Removing existing Azure Static Web Apps extension.'
-        az extension remove --name staticwebapp | Out-Null
-        $extensionInstalled = $false
-    }
-
-    if (-not $extensionInstalled) {
-        Write-Info 'Installing Azure Static Web Apps extension...'
-        az extension add --name staticwebapp | Out-Null
-    }
-    else {
-        Write-Info 'Azure Static Web Apps extension already installed. Skipping.'
-    }
-}
 
 # 既存の Static Web App を取得する関数（存在しない場合は $null を返す）
 function Get-StaticWebApp {
@@ -199,26 +138,14 @@ if (-not $ResourceGroupLocation) {
     throw 'Resource group location is required.'
 }
 
-# 必須ツール: npm の存在確認
-if (-not (Get-Command npm -ErrorAction SilentlyContinue)) {
-    throw 'npm is required. Install Node.js 18+ which includes npm.'
-}
-
-# スクリプトディレクトリとリポジトリルートの解決
 $scriptDir = Split-Path -Parent $PSCommandPath
-$repoRoot = (Resolve-Path (Join-Path $scriptDir '..')).Path
-$apiDir = Join-Path $repoRoot 'api'
-
-# API ディレクトリの存在確認
-if (-not (Test-Path $apiDir)) {
-    throw "API directory not found at $apiDir"
+$prepareScript = Join-Path $scriptDir 'Prepare-LocalEnvironment.ps1'
+if (-not (Test-Path $prepareScript)) {
+    throw "Local preparation script not found at $prepareScript"
 }
 
-# 依存関係のインストール（ルートと API）
-Ensure-NpmDependencies -WorkingDirectory $repoRoot -Label 'root' -ForceInstall:$Force
-Ensure-NpmDependencies -WorkingDirectory $apiDir -Label 'api' -ForceInstall:$Force
-Ensure-AzCli
-Ensure-StaticWebAppsExtension -ForceInstall:$Force
+Write-Info 'Running local preparation script...'
+& $prepareScript -Force:$Force
 
 # -PrepareOnly が指定された場合は準備タスクのみ実行してスクリプトを終了
 if ($PrepareOnly) {
