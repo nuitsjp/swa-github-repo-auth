@@ -44,19 +44,10 @@ pwsh ./scripts/New-SwaResources.ps1
 # GitHub シークレットまで自動更新する場合 (gh CLI & PAT が必要)
 pwsh ./scripts/New-SwaResources.ps1 \
   --github-repo your-org/swa-github-repo-auth
-
-# GitHub Actions 連携を Azure 作成時に自動構成する場合
-pwsh ./scripts/New-SwaResources.ps1 \
-  --source https://github.com/<your-org>/swa-github-repo-auth \
-  --branch main \
-  --login-with-github \
-  --github-repo your-org/swa-github-repo-auth
 ```
 
 - `--github-repo <owner/repo>` を指定すると、SWA から取得したデプロイトークンを GitHub CLI (`gh secret set`) で `AZURE_STATIC_WEB_APPS_API_TOKEN` シークレットに保存します。別名で登録したい場合は `--GitHubSecretName` を上書きしてください。
-
-- `--source`/`--branch` を指定すると GitHub Actions 連携が構成されます。組織リポジトリの場合は `--login-with-github` で Azure CLI の GitHub アプリに権限を与えてください。
-- アプリ/Functions のパスを変更したい場合は `--app-location` や `--api-location` を上書きします。
+- `.github/workflows/deploy-azure-static-web-apps.yml` が本リポジトリに含まれているため、スクリプトで取得したデプロイトークンをシークレットに登録するだけで GitHub Actions から SWA へデプロイできます。
 
 ### 3. GitHub OAuth App の作成
 

@@ -2,14 +2,15 @@
 
 <#
 .SYNOPSIS
-ローカル依存関係を初期化し、Azure Static Web App をプロビジョニングします。
+ローカル依存関係を初期化し、Azure Static Web App をプロビジョニングしてデプロイトークンを取得します。
 
 .DESCRIPTION
 リポジトリルートと api フォルダーの npm install を実行し（既にインストール済みの場合はスキップ）、
-Azure Static Web Apps CLI 拡張機能がインストールされていることを確認し、オプションで
-Static Web App リソースを作成または再作成します。-PrepareOnly を使用すると、ローカル準備タスクのみに
-スクリプトを制限できます。-Force を使用すると、node_modules の再構築、拡張機能の再インストール、
-および既存の Static Web App が存在する場合は再作成を行います。
+Azure Static Web Apps CLI 拡張機能がインストールされていることを確認します。必要に応じて Static Web App
+リソースを作成または再作成し、デプロイトークンを取得します。`--GitHubRepo` を指定すると、取得した
+デプロイトークンを GitHub CLI (`gh secret set`) でシークレットに登録し、同梱の
+`.github/workflows/deploy-azure-static-web-apps.yml` が利用できる状態にします。`-PrepareOnly` を指定すると
+準備処理のみを行います。
 
 .PARAMETER ResourceGroupName
 デフォルトのリソースグループ名を上書きします（デフォルト: rg-<repo>-prod）。
@@ -23,49 +24,27 @@ Static Web App 名を上書きします（デフォルト: stapp-<repo>-prod）�
 .PARAMETER Sku
 Static Web App の SKU（Free、Standard、Dedicated）。
 
-.PARAMETER Source
-デプロイメント用に接続する Git リポジトリの URL。省略した場合、空の SWA が作成されます。
-
-.PARAMETER Branch
-Git 統合のブランチ名（デフォルト: main）。
-
-.PARAMETER AppLocation
-ビルド成果物の相対アプリパス（デフォルト: docs）。
-
-.PARAMETER ApiLocation
-相対 API パス（デフォルト: api）。
-
-.PARAMETER OutputLocation
-ビルド済みフロントエンドの相対出力パス（オプション）。
-
-.PARAMETER LoginWithGithub
-デプロイメント構成時に Azure CLI の GitHub 認証フローをトリガーします。
-
 .PARAMETER PrepareOnly
-Azure リソースをプロビジョニングせずに、依存関係のインストールと拡張機能のチェックのみを実行します。
+Azure リソースを作成せず、ローカル依存関係のインストールと CLI 拡張確認のみ実行します。
 
 .PARAMETER GitHubRepo
-オプションの GitHub リポジトリ（形式: owner/repo）。指定すると、スクリプトは
-GitHubSecretName で指定されたリポジトリシークレットにデプロイメントトークンを書き込みます。
+更新対象の GitHub リポジトリ（形式: owner/repo）。指定すると GitHub シークレットが自動更新されます。
 
 .PARAMETER GitHubSecretName
-GitHubRepo が指定された場合に更新する GitHub シークレットの名前。デフォルトは
-AZURE_STATIC_WEB_APPS_API_TOKEN。
+更新する GitHub シークレット名。デフォルトは AZURE_STATIC_WEB_APPS_API_TOKEN。
 
 .PARAMETER Force
-依存関係の再インストール、SWA CLI 拡張機能の再インストール、および
-既存の Static Web App が存在する場合は再作成を強制します。
+依存関係の再インストール、SWA CLI 拡張機能の再インストール、および既存の Static Web App 再作成を強制します。
 
 .EXAMPLE
 pwsh ./scripts/New-SwaResources.ps1 -PrepareOnly
 
-Azure リソースを作成せずに npm install（root/api）を実行し、SWA CLI 拡張機能が
-存在することを確認します。
+Azure リソースを作成せずに npm install（root/api）を実行し、SWA CLI 拡張機能の存在を確認します。
 
 .EXAMPLE
-pwsh ./scripts/New-SwaResources.ps1 --source https://github.com/contoso/swa --branch main --login-with-github
+pwsh ./scripts/New-SwaResources.ps1 --GitHubRepo your-org/your-repo
 
-必要に応じてリポジトリを準備し、GitHub に接続された Static Web App をプロビジョニングします。
+必要に応じてリポジトリを準備し、Static Web App を作成し、デプロイトークンを GitHub シークレットに登録します。
 #>
 [CmdletBinding()]
 param(
@@ -74,12 +53,6 @@ param(
     [string]$ResourceGroupLocation = 'japaneast',
     [ValidateSet('Free','Standard','Dedicated')]
     [string]$Sku = 'Standard',
-    [string]$Source,
-    [string]$Branch = 'main',
-    [string]$AppLocation = 'docs',
-    [string]$ApiLocation = 'api',
-    [string]$OutputLocation,
-    [switch]$LoginWithGithub,
     [switch]$PrepareOnly,
     [string]$GitHubRepo,
     [string]$GitHubSecretName = 'AZURE_STATIC_WEB_APPS_API_TOKEN',
@@ -244,6 +217,7 @@ if (-not (Test-Path $apiDir)) {
 # 依存関係のインストール（ルートと API）
 Ensure-NpmDependencies -WorkingDirectory $repoRoot -Label 'root' -ForceInstall:$Force
 Ensure-NpmDependencies -WorkingDirectory $apiDir -Label 'api' -ForceInstall:$Force
+Ensure-AzCli
 Ensure-StaticWebAppsExtension -ForceInstall:$Force
 
 # -PrepareOnly が指定された場合は準備タスクのみ実行してスクリプトを終了
@@ -254,9 +228,6 @@ if ($PrepareOnly) {
     Write-Info 'Preparation tasks completed. Skipping Azure provisioning as requested.'
     return
 }
-
-# Azure CLI の存在確認
-Ensure-AzCli
 
 # リソースグループの作成または確認
 Write-Info "Ensuring resource group '$ResourceGroupName' exists in '$ResourceGroupLocation'..."
@@ -272,32 +243,12 @@ if ($existingApp -and $Force) {
 
 # Static Web App の作成（存在しない場合のみ）
 if (-not $existingApp) {
-    # 基本的な作成引数を構築
     $createArgs = @(
         'staticwebapp','create',
         '--name',$Name,
         '--resource-group',$ResourceGroupName,
         '--sku',$Sku
     )
-
-    # Git リポジトリソースが指定されている場合は統合設定を追加
-    if ($Source) {
-        $createArgs += @('--source',$Source,'--branch',$Branch)
-        if ($AppLocation) {
-            $createArgs += @('--app-location',$AppLocation)
-        }
-        if ($ApiLocation) {
-            $createArgs += @('--api-location',$ApiLocation)
-        }
-        if ($OutputLocation) {
-            $createArgs += @('--output-location',$OutputLocation)
-        }
-    }
-
-    # GitHub ログインフラグが指定されている場合は追加
-    if ($LoginWithGithub.IsPresent) {
-        $createArgs += '--login-with-github'
-    }
 
     Write-Info "Creating Static Web App '$Name'..."
     az @createArgs | Out-Null
