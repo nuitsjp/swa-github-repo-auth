@@ -7,8 +7,8 @@ Configures GitHub-related app settings on an Azure Static Web App.
 .DESCRIPTION
 Ensures the GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET, GITHUB_REPO_OWNER, and
 GITHUB_REPO_NAME settings exist (and match provided values) for the Production
-Static Web App environment. Existing settings are left untouched when the values
-already match; use -Force to delete managed keys before reapplying.
+Static Web App environment. Repository情報は git remote から自動検出します。
+Existing settings are left untouched when the values already match.
 
 .PARAMETER ResourceGroupName
 Resource group that contains the Static Web App (defaults to rg-<repo>-prod).
@@ -22,15 +22,6 @@ GitHub OAuth App Client ID. Prompted interactively if omitted.
 .PARAMETER ClientSecret
 GitHub OAuth App Client Secret. Prompted securely if omitted.
 
-.PARAMETER RepoOwner
-GitHub repository owner or organization. Prompted if omitted.
-
-.PARAMETER RepoName
-GitHub repository name. Prompted if omitted.
-
-.PARAMETER Force
-Deletes the managed settings before reapplying, ensuring fresh values are stored.
-
 .EXAMPLE
 pwsh ./scripts/Set-SwaAppSettings.ps1 --resource-group rg-swa --name stapp-swa
 
@@ -41,10 +32,7 @@ param(
     [string]$ResourceGroupName,
     [string]$Name,
     [string]$ClientId,
-    [string]$ClientSecret,
-    [string]$RepoOwner,
-    [string]$RepoName,
-    [switch]$Force
+    [string]$ClientSecret
 )
 
 $ErrorActionPreference = 'Stop'
@@ -99,21 +87,9 @@ function Get-AppSettings {
     return $result
 }
 
-function Remove-AppSettings {
-    param(
-        [string]$Name,
-        [string]$ResourceGroup,
-        [string[]]$Keys
-    )
-    if (-not $Keys -or $Keys.Count -eq 0) {
-        return
-    }
-    $args = @('staticwebapp','appsettings','delete','--name',$Name,'--resource-group',$ResourceGroup,'--setting-names') + $Keys
-    az @args | Out-Null
-}
-
 $repoContext = Resolve-RepoContext
 $repoName = $repoContext.GitHubRepo
+$repoOwner = $repoContext.GitHubOwner
 if (-not $ResourceGroupName) {
     $ResourceGroupName = "rg-$repoName-prod"
 }
@@ -132,39 +108,15 @@ if (-not $ClientSecret) {
     )
 }
 
-if (-not $RepoOwner) {
-    $RepoOwner = $repoContext.GitHubOwner
-}
-
-if (-not $RepoName) {
-    $RepoName = $repoContext.GitHubRepo
-}
-
 $desiredSettings = [ordered]@{
     'GITHUB_CLIENT_ID' = $ClientId
     'GITHUB_CLIENT_SECRET' = $ClientSecret
-    'GITHUB_REPO_OWNER' = $RepoOwner
-    'GITHUB_REPO_NAME' = $RepoName
+    'GITHUB_REPO_OWNER' = $repoOwner
+    'GITHUB_REPO_NAME' = $repoName
 }
 
 $existingSettings = Get-AppSettings -Name $Name -ResourceGroup $ResourceGroupName
 $managedKeys = $desiredSettings.Keys
-
-if ($Force) {
-    $keysToDelete = @()
-    foreach ($key in $managedKeys) {
-        if ($existingSettings.ContainsKey($key)) {
-            $keysToDelete += $key
-        }
-    }
-    if ($keysToDelete.Count -gt 0) {
-        Write-Info 'Force オプションが指定されたため、既存のアプリ設定を削除してから再設定します。'
-        Remove-AppSettings -Name $Name -ResourceGroup $ResourceGroupName -Keys $keysToDelete
-        foreach ($key in $keysToDelete) {
-            $existingSettings.Remove($key)
-        }
-    }
-}
 
 $settingsToApply = @()
 foreach ($entry in $desiredSettings.GetEnumerator()) {

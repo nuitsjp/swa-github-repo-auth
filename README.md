@@ -57,14 +57,12 @@ pwsh ./scripts/New-SwaResources.ps1
 
 ### 4. 環境変数の設定
 
-- `scripts/Set-SwaAppSettings.ps1` が `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, `GITHUB_REPO_OWNER`, `GITHUB_REPO_NAME` を Production もしくは指定環境に登録します。既存値と差分がない場合は更新をスキップし、`--Force` を付けると管理対象キーを削除してから再設定します。
+- `scripts/Set-SwaAppSettings.ps1` が `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, `GITHUB_REPO_OWNER`, `GITHUB_REPO_NAME` を Production もしくは指定環境に登録します。既存値と差分がない場合は更新をスキップします（`--Force` オプションは廃止しました）。リポジトリの所有者・名称は `git remote origin` から自動検出します。
 
 ```bash
 pwsh ./scripts/Set-SwaAppSettings.ps1 \
   --resource-group swa-docs-rg \
   --name swa-github-docs \
-  --repo-owner your-org \
-  --repo-name private-docs \
   --client-id <GitHub OAuth Client ID> \
   --client-secret <GitHub OAuth Client Secret>
 ```
