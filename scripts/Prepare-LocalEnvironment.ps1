@@ -32,18 +32,18 @@ function Ensure-NpmDependencies {
 
     $nodeModules = Join-Path $WorkingDirectory 'node_modules'
     if ((Test-Path $nodeModules) -and -not $ForceInstall) {
-        Write-Info "$Label dependencies already installed. Skipping."
+        Write-Info "$Label の依存関係は既にインストール済みのためスキップします。"
         return
     }
 
     if ($ForceInstall -and (Test-Path $nodeModules)) {
-        Write-Info "Force specified. Removing existing node_modules for $Label before reinstalling."
+        Write-Info "Force オプションが指定されたため、$Label の node_modules を削除して再インストールします。"
         Remove-Item -Path $nodeModules -Recurse -Force -ErrorAction SilentlyContinue
     }
 
     Push-Location $WorkingDirectory
     try {
-        Write-Info "Running 'npm install' for $Label."
+        Write-Info "$Label で 'npm install' を実行します。"
         npm install | Out-Null
     }
     finally {
@@ -55,7 +55,7 @@ function Ensure-NpmDependencies {
 # Azure CLI (az) の存在確認
 function Ensure-AzCli {
     if (-not (Get-Command az -ErrorAction SilentlyContinue)) {
-        throw 'Azure CLI (az) is required. Install it from https://learn.microsoft.com/cli/azure/install-azure-cli'
+        throw 'Azure CLI (az) が見つかりません。https://learn.microsoft.com/cli/azure/install-azure-cli を参照してインストールしてください。'
     }
 }
 
@@ -71,23 +71,23 @@ function Ensure-StaticWebAppsExtension {
     }
 
     if ($ForceInstall -and $extensionInstalled) {
-        Write-Info 'Force specified. Removing existing Azure Static Web Apps extension.'
+        Write-Info 'Force オプションが指定されたため、既存の Azure Static Web Apps 拡張機能を削除します。'
         az extension remove --name staticwebapp | Out-Null
         $extensionInstalled = $false
     }
 
     if (-not $extensionInstalled) {
-        Write-Info 'Installing Azure Static Web Apps extension...'
+        Write-Info 'Azure Static Web Apps 拡張機能をインストールしています...'
         az extension add --name staticwebapp | Out-Null
     }
     else {
-        Write-Info 'Azure Static Web Apps extension already installed. Skipping.'
+        Write-Info 'Azure Static Web Apps 拡張機能は既にインストール済みのためスキップします。'
     }
 }
 
 # 必須ツール: npm の存在確認（Node.js 18+ に含まれる）
 if (-not (Get-Command npm -ErrorAction SilentlyContinue)) {
-    throw 'npm is required. Install Node.js 18+ which includes npm.'
+    throw 'npm が見つかりません。npm を含む Node.js 18 以上をインストールしてください。'
 }
 
 # スクリプトディレクトリとリポジトリルートの解決
@@ -97,7 +97,7 @@ $apiDir = Join-Path $repoRoot 'api'
 
 # API ディレクトリの存在確認
 if (-not (Test-Path $apiDir)) {
-    throw "API directory not found at $apiDir"
+    throw "API ディレクトリが $apiDir に見つかりません。"
 }
 
 # 依存関係のインストール（ルートディレクトリ: SWA CLI など）
@@ -113,4 +113,4 @@ Ensure-AzCli
 Ensure-StaticWebAppsExtension -ForceInstall:$Force
 
 # ローカル開発環境の準備完了メッセージ
-Write-Host '[SUCCESS] Local prerequisites are ready.' -ForegroundColor Green
+Write-Host '[SUCCESS] ローカル開発の前提条件を準備しました。' -ForegroundColor Green

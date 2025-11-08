@@ -71,14 +71,14 @@ function Resolve-RepoName {
 
 function Ensure-AzCli {
     if (-not (Get-Command az -ErrorAction SilentlyContinue)) {
-        throw "Azure CLI (az) is required. Install it from https://learn.microsoft.com/cli/azure/install-azure-cli"
+        throw 'Azure CLI (az) が見つかりません。https://learn.microsoft.com/cli/azure/install-azure-cli を参照してインストールしてください。'
     }
 }
 
 function Ensure-StaticWebAppsExtensionInstalled {
     $null = az extension show --name staticwebapp 2>$null
     if ($LASTEXITCODE -ne 0) {
-        throw "Azure Static Web Apps CLI extension is missing. Run './scripts/Prepare-LocalEnvironment.ps1' or install via 'az extension add --name staticwebapp'."
+        throw "Azure Static Web Apps 拡張機能が見つかりません。'./scripts/Prepare-LocalEnvironment.ps1' を実行するか、'az extension add --name staticwebapp' で追加してください。"
     }
 }
 
@@ -136,22 +136,22 @@ Ensure-AzCli
 Ensure-StaticWebAppsExtensionInstalled
 
 if (-not $ClientId) {
-    $ClientId = Read-Host 'GitHub OAuth Client ID'
+    $ClientId = Read-Host 'GitHub OAuth Client ID を入力してください'
 }
 
 if (-not $ClientSecret) {
-    $secureSecret = Read-Host 'GitHub OAuth Client Secret' -AsSecureString
+    $secureSecret = Read-Host 'GitHub OAuth Client Secret を入力してください' -AsSecureString
     $ClientSecret = [System.Runtime.InteropServices.Marshal]::PtrToStringBSTR(
         [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($secureSecret)
     )
 }
 
 if (-not $RepoOwner) {
-    $RepoOwner = Read-Host 'GitHub repository owner (user or org)'
+    $RepoOwner = Read-Host 'GitHub リポジトリのオーナー (ユーザーまたは組織) を入力してください'
 }
 
 if (-not $RepoName) {
-    $RepoName = Read-Host 'GitHub repository name'
+    $RepoName = Read-Host 'GitHub リポジトリ名を入力してください'
 }
 
 $desiredSettings = [ordered]@{
@@ -172,7 +172,7 @@ if ($Force) {
         }
     }
     if ($keysToDelete.Count -gt 0) {
-        Write-Info 'Force specified. Removing existing app settings before reapplying.'
+        Write-Info 'Force オプションが指定されたため、既存のアプリ設定を削除してから再設定します。'
         Remove-AppSettings -Name $Name -ResourceGroup $ResourceGroupName -Environment $EnvironmentName -Keys $keysToDelete
         foreach ($key in $keysToDelete) {
             $existingSettings.Remove($key)
@@ -190,7 +190,7 @@ foreach ($entry in $desiredSettings.GetEnumerator()) {
 }
 
 if ($settingsToApply.Count -eq 0) {
-    Write-Info 'All managed app settings already match the desired values. Skipping update.'
+    Write-Info '管理対象のアプリ設定はすべて希望値と一致しているため更新をスキップします。'
     return
 }
 
@@ -199,7 +199,7 @@ if ($EnvironmentName) {
     $setArgs += @('--environment-name',$EnvironmentName)
 }
 
-Write-Info 'Updating app settings...'
+Write-Info 'アプリ設定を更新しています...'
 az @setArgs | Out-Null
 
-Write-Host "[SUCCESS] App settings updated. Run 'az staticwebapp appsettings list -n $Name -g $ResourceGroupName' to verify." -ForegroundColor Green
+Write-Host "[SUCCESS] アプリ設定を更新しました。必要に応じて 'az staticwebapp appsettings list -n $Name -g $ResourceGroupName' で確認してください。" -ForegroundColor Green

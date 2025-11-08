@@ -57,18 +57,18 @@ function Write-Info {
 function Resolve-RepoContext {
     $remoteUrl = $(git remote get-url origin 2>$null)
     if (-not $remoteUrl) {
-        throw 'Failed to determine GitHub repository. Ensure git remote "origin" is configured.'
+        throw 'GitHub リポジトリを特定できません。git remote "origin" が設定されているか確認してください。'
     }
 
     $remoteUrl = $remoteUrl.Trim()
     $pattern = 'github\.com[:/](?<owner>[^/]+?)/(?<repo>[^/]+?)(?:\.git)?$'
     if (-not ($remoteUrl -match $pattern)) {
-        throw "Unable to parse GitHub slug from remote URL '$remoteUrl'."
+        throw "リモート URL '$remoteUrl' から GitHub スラッグを解析できません。"
     }
 
     $repoName = $matches.repo
     if (-not $repoName) {
-        throw 'Failed to determine repository name.'
+        throw 'リポジトリ名を取得できませんでした。'
     }
 
     return [pscustomobject]@{
@@ -106,7 +106,7 @@ function Get-DeploymentToken {
 
     $token = az staticwebapp secrets list --name $Name --resource-group $ResourceGroup --query "properties.apiKey" -o tsv 2>$null
     if ($LASTEXITCODE -ne 0 -or -not $token) {
-        throw 'Failed to retrieve deployment token. Ensure the Static Web App exists and you have sufficient permissions.'
+        throw 'デプロイトークンの取得に失敗しました。Static Web App が存在し、十分な権限があるか確認してください。'
     }
 
     return $token.Trim()
@@ -121,17 +121,17 @@ function Show-GitHubOAuthInstructions {
 
     $hostname = az staticwebapp show --name $Name --resource-group $ResourceGroup --query 'defaultHostname' -o tsv 2>$null
     if ($LASTEXITCODE -ne 0 -or -not $hostname) {
-        Write-Warning 'Failed to resolve Static Web App hostname. Run "az staticwebapp show" manually to obtain URLs for the GitHub OAuth App.'
+        Write-Warning 'Static Web App のホスト名を取得できませんでした。"az staticwebapp show" を手動で実行して GitHub OAuth App 用の URL を取得してください。'
         return
     }
 
     $homepageUrl = "https://$hostname/"
     $callbackUrl = "https://$hostname/.auth/login/github/callback"
 
-    Write-Host "`n[TODO] Configure GitHub OAuth App" -ForegroundColor Yellow
-    Write-Host "  Homepage URL: $homepageUrl"
-    Write-Host "  Authorization callback URL: $callbackUrl"
-    Write-Host "  Next steps:" -ForegroundColor Yellow
+    Write-Host "`n[TODO] GitHub OAuth App の設定" -ForegroundColor Yellow
+    Write-Host "  ホームページ URL: $homepageUrl"
+    Write-Host "  認証コールバック URL: $callbackUrl"
+    Write-Host "  次の手順:" -ForegroundColor Yellow
     Write-Host '    1. GitHub > Settings > Developer settings > OAuth Apps > New OAuth App を開く'
     Write-Host '    2. 上記 URL を入力してアプリを作成し、Client ID/Secret を保管'
     Write-Host '    3. scripts/Set-SwaAppSettings.ps1 で GITHUB_CLIENT_ID / GITHUB_CLIENT_SECRET などを設定'
@@ -145,10 +145,10 @@ function Set-GitHubSecret {
     )
 
     if (-not (Get-Command gh -ErrorAction SilentlyContinue)) {
-        throw "GitHub CLI (gh) is required to update repository secrets. Install it from https://cli.github.com/."
+        throw 'GitHub CLI (gh) が見つかりません。https://cli.github.com/ からインストールしてから再実行してください。'
     }
 
-    Write-Info "Updating GitHub secret '$GitHubSecretNameConst' in '$Repo'."
+    Write-Info "GitHub シークレット '$GitHubSecretNameConst' を '$Repo' に設定しています。"
     gh secret set $GitHubSecretNameConst --repo $Repo --body $SecretValue | Out-Null
 }
 
@@ -166,7 +166,7 @@ if (-not $Name) {
 }
 
 if (-not $ResourceGroupLocation) {
-    throw 'Resource group location is required.'
+    throw 'リソースグループのリージョンが指定されていません。'
 }
 
 $targetGitHubRepo = "$($repoContext.GitHubOwner)/$($repoContext.GitHubRepo)"
@@ -174,16 +174,16 @@ $targetGitHubRepo = "$($repoContext.GitHubOwner)/$($repoContext.GitHubRepo)"
 # リソースグループの作成または確認
 $resourceGroupExists = Get-ResourceGroup -Name $ResourceGroupName
 if ($Force -and $resourceGroupExists) {
-    Write-Info "Force specified. Deleting resource group '$ResourceGroupName'."
+    Write-Info "Force オプションが指定されたため、リソースグループ '$ResourceGroupName' を削除します。"
     az group delete --name $ResourceGroupName --yes | Out-Null
     $resourceGroupExists = $false
 }
 
 if (-not $resourceGroupExists) {
-    Write-Info "Creating resource group '$ResourceGroupName' in '$ResourceGroupLocation'..."
+    Write-Info "リソースグループ '$ResourceGroupName' を '$ResourceGroupLocation' に作成しています..."
     az group create --name $ResourceGroupName --location $ResourceGroupLocation | Out-Null
 } else {
-    Write-Info "Resource group '$ResourceGroupName' already exists."
+    Write-Info "リソースグループ '$ResourceGroupName' は既に存在します。"
 }
 
 $existingApp = $null
@@ -200,19 +200,19 @@ if (-not $existingApp) {
         '--sku',$Sku
     )
 
-    Write-Info "Creating Static Web App '$Name'..."
+    Write-Info "Static Web App '$Name' を作成しています..."
     az @createArgs | Out-Null
 
     $deploymentToken = Get-DeploymentToken -Name $Name -ResourceGroup $ResourceGroupName
-    Write-Info 'Deployment token retrieved.'
+    Write-Info 'デプロイトークンを取得しました。'
 
     Set-GitHubSecret -Repo $targetGitHubRepo -SecretValue $deploymentToken
-    Write-Host "[SUCCESS] GitHub secret '$GitHubSecretNameConst' updated for $targetGitHubRepo." -ForegroundColor Green
+    Write-Host "[SUCCESS] GitHub シークレット '$GitHubSecretNameConst' を $targetGitHubRepo 用に更新しました。" -ForegroundColor Green
 
     Show-GitHubOAuthInstructions -Name $Name -ResourceGroup $ResourceGroupName
 }
 else {
-    Write-Info "Static Web App '$Name' already exists. Use --Force to recreate."
+    Write-Info "Static Web App '$Name' は既に存在します。再作成する場合は --Force を指定してください。"
 
     Show-GitHubOAuthInstructions -Name $Name -ResourceGroup $ResourceGroupName
 }
