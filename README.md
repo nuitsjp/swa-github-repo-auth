@@ -14,39 +14,50 @@ Private/Internal な GitHub リポジトリのドキュメントを Azure Static
 - SWA Standard プランを利用可能な Azure サブスクリプション
 - GitHub OAuth App を作成できる GitHub アカウント (組織リポジトリの場合は Org 権限も必要)
 - Node.js 18 以降と npm (ローカル検証・Static Web Apps CLI 用)
+- PowerShell 7 以上 (リポジトリ同梱スクリプトは PowerShell Core 用)
+- GitHub CLI (`gh`) ※ `--github-repo` でシークレットを自動設定する場合に必要
 
 ## 構築手順
 
-### 1. リポジトリ取得とローカル準備
+### 1. リポジトリ取得と初期化
 
 ```bash
 git clone https://github.com/<your-org>/swa-github-repo-auth.git
 cd swa-github-repo-auth
-cd api && npm install && cd -
-npx swa start --api-location api --swa-config staticwebapp.config.json
+pwsh ./scripts/New-SwaResources.ps1 -PrepareOnly
+npx @azure/static-web-apps-cli start ./docs --api-location api --swa-config-location .
 ```
 
-- `npx swa start` で `/.auth/me` や保護ルートを確認し、ローカルの挙動を把握します。
+- `New-SwaResources.ps1 -PrepareOnly` がルート/`api/` の `npm install` と Azure CLI の Static Web Apps 拡張追加をまとめて実行します。既に依存関係が入っていれば自動でスキップされ、`--Force` を付けると既存の `node_modules` を削除して再インストールし、拡張機能も入れ直します。
+- `npx @azure/static-web-apps-cli start ./docs --api-location api --swa-config-location .` で静的ファイル (`docs/`) と Functions (`api/`) を同時に立ち上げ、`/.auth/me` や保護ルートを確認します。Static Web Apps CLI (`@azure/static-web-apps-cli`) は devDependencies に含まれているため、初期化スクリプト実行後にそのまま利用できます。
 
 ### 2. Azure Static Web Apps リソース作成
 
-- `scripts/provision-swa.sh` を使うとリソース グループ作成と SWA 作成をまとめて実行できます。
+- `scripts/New-SwaResources.ps1` (PowerShell Core) でリソース グループと SWA を一括作成できます。デフォルトで `rg-<repo-name>-prod` / `stapp-<repo-name>-prod` を利用し、アプリ/Functions パスも現在の構成 (`docs`, `api`) が自動で指定されます。既に同名の Static Web App が存在する場合は何もしませんが、`--Force` を付けると既存のアプリを削除してから再作成します (リソース グループは削除しません)。スクリプトは準備フェーズ（npm install ＋ CLI 拡張確認）も内包し、Azure 作成後はデプロイトークンを取得して GitHub シークレット更新コマンドの代わりに自動登録まで行えます。
+- Static Web Apps は Microsoft Learn の [公式ドキュメント](https://learn.microsoft.com/azure/static-web-apps/deploy-web-framework#create-a-static-web-app-on-azure) にある通りグローバル分散サービスであり、SWA 本体のロケーション指定は不要です（リソース グループのリージョンは `japaneast` を既定にしています）。
 
 ```bash
-./scripts/provision-swa.sh \
-  --resource-group swa-docs-rg \
-  --name swa-github-docs \
-  --location japaneast \
-  --sku Standard \
+# 既定値で空の Static Web App を作成
+pwsh ./scripts/New-SwaResources.ps1
+
+# GitHub リポジトリと接続する場合
+pwsh ./scripts/New-SwaResources.ps1 \
   --source https://github.com/<your-org>/swa-github-repo-auth \
   --branch main \
-  --app-location ./docs \
-  --api-location api \
   --login-with-github
+
+# GitHub シークレットまで自動更新する場合 (gh CLI & PAT が必要)
+pwsh ./scripts/New-SwaResources.ps1 \
+  --source https://github.com/<your-org>/swa-github-repo-auth \
+  --branch main \
+  --login-with-github \
+  --github-repo your-org/swa-github-repo-auth
 ```
 
-- `--source`/`--branch` を指定すると GitHub Actions 連携が作成されます。組織リポジトリは `--login-with-github` で Azure CLI の GitHub アプリに権限を付与してください。
-- 空の SWA だけ必要な場合は `--source` を省略します。
+- `--github-repo <owner/repo>` を指定すると、SWA から取得したデプロイトークンを GitHub CLI (`gh secret set`) で `AZURE_STATIC_WEB_APPS_API_TOKEN` シークレットに保存します。別名で登録したい場合は `--GitHubSecretName` を上書きしてください。
+
+- `--source`/`--branch` を指定すると GitHub Actions 連携が構成されます。組織リポジトリの場合は `--login-with-github` で Azure CLI の GitHub アプリに権限を与えてください。
+- アプリ/Functions のパスを変更したい場合は `--app-location` や `--api-location` を上書きします。
 
 ### 3. GitHub OAuth App の作成
 
@@ -57,10 +68,10 @@ npx swa start --api-location api --swa-config staticwebapp.config.json
 
 ### 4. 環境変数の設定
 
-- `scripts/configure-swa-settings.sh` が `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, `GITHUB_REPO_OWNER`, `GITHUB_REPO_NAME` を Production もしくは指定環境に登録します。
+- `scripts/Set-SwaAppSettings.ps1` が `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, `GITHUB_REPO_OWNER`, `GITHUB_REPO_NAME` を Production もしくは指定環境に登録します。既存値と差分がない場合は更新をスキップし、`--Force` を付けると管理対象キーを削除してから再設定します。
 
 ```bash
-./scripts/configure-swa-settings.sh \
+pwsh ./scripts/Set-SwaAppSettings.ps1 \
   --resource-group swa-docs-rg \
   --name swa-github-docs \
   --repo-owner your-org \
