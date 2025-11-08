@@ -5,7 +5,7 @@
 Configures GitHub-related app settings on an Azure Static Web App.
 
 .DESCRIPTION
-Ensures the GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET, GITHUB_REPO_OWNER, and
+Ensures the GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET, GITHUB_REPO_ OWNER, and
 GITHUB_REPO_NAME settings exist (and match provided values) for the Production
 Static Web App environment. Repository情報は git remote から自動検出します。
 Existing settings are left untouched when the values already match.
@@ -69,28 +69,6 @@ function Resolve-RepoContext {
     }
 }
 
-function Get-AppSettings {
-    param([string]$Name,[string]$ResourceGroup)
-    $args = @('staticwebapp','appsettings','list','--name',$Name,'--resource-group',$ResourceGroup,'--query','properties')
-    $output = az @args 2>$null
-    if ($LASTEXITCODE -ne 0 -or -not $output) {
-        return @{}
-    }
-    $json = ConvertFrom-Json $output
-    $result = @{}
-    if ($json -is [System.Collections.IDictionary]) {
-        foreach ($key in $json.Keys) {
-            $result[$key] = [string]$json[$key]
-        }
-    }
-    else {
-        foreach ($prop in $json.PSObject.Properties) {
-            $result[$prop.Name] = [string]$prop.Value
-        }
-    }
-    return $result
-}
-
 $repoContext = Resolve-RepoContext
 $repoName = $repoContext.GitHubRepo
 $repoOwner = $repoContext.GitHubOwner
@@ -101,33 +79,18 @@ if (-not $Name) {
     $Name = "stapp-$repoName-prod"
 }
 
-$desiredSettings = [ordered]@{
-    'GITHUB_CLIENT_ID' = $ClientId
-    'GITHUB_CLIENT_SECRET' = $ClientSecret
-    'GITHUB_REPO_OWNER' = $repoOwner
-    'GITHUB_REPO_NAME' = $repoName
-}
-
-$existingSettings = Get-AppSettings -Name $Name -ResourceGroup $ResourceGroupName
-$managedKeys = $desiredSettings.Keys
-
-$settingsToApply = @()
-foreach ($entry in $desiredSettings.GetEnumerator()) {
-    $key = $entry.Key
-    $value = $entry.Value
-    if (-not $existingSettings.ContainsKey($key) -or $existingSettings[$key] -ne $value) {
-        $settingsToApply += "$key=$value"
-    }
-}
-
-if ($settingsToApply.Count -eq 0) {
-    Write-Info '管理対象のアプリ設定はすべて希望値と一致しているため更新をスキップします。'
-    return
-}
-
-$setArgs = @('staticwebapp','appsettings','set','--name',$Name,'--resource-group',$ResourceGroupName,'--setting-names') + $settingsToApply
+$settingNames = @(
+    "GITHUB_CLIENT_ID=$ClientId"
+    "GITHUB_CLIENT_SECRET=$ClientSecret"
+    "GITHUB_REPO_OWNER=$repoOwner"
+    "GITHUB_REPO_NAME=$repoName"
+)
 
 Write-Info 'アプリ設定を更新しています...'
-az @setArgs | Out-Null
+az staticwebapp appsettings set --name $Name -g $ResourceGroupName --setting-names @settingNames
+
+if ($LASTEXITCODE -ne 0) {
+    throw 'アプリ設定の更新に失敗しました。'
+}
 
 Write-Host "[SUCCESS] アプリ設定を更新しました。必要に応じて 'az staticwebapp appsettings list -n $Name -g $ResourceGroupName' で確認してください。" -ForegroundColor Green
