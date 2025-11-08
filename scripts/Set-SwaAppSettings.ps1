@@ -31,7 +31,11 @@ Prompts for the required GitHub credentials and upserts them into the Production
 param(
     [string]$ResourceGroupName,
     [string]$Name,
+    [Parameter(Mandatory = $true)]
+    [ValidateNotNullOrEmpty()]
     [string]$ClientId,
+    [Parameter(Mandatory = $true)]
+    [ValidateNotNullOrEmpty()]
     [string]$ClientSecret
 )
 
@@ -95,17 +99,6 @@ if (-not $ResourceGroupName) {
 }
 if (-not $Name) {
     $Name = "stapp-$repoName-prod"
-}
-
-if (-not $ClientId) {
-    $ClientId = Read-Host 'GitHub OAuth Client ID を入力してください'
-}
-
-if (-not $ClientSecret) {
-    $secureSecret = Read-Host 'GitHub OAuth Client Secret を入力してください' -AsSecureString
-    $ClientSecret = [System.Runtime.InteropServices.Marshal]::PtrToStringBSTR(
-        [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($secureSecret)
-    )
 }
 
 $desiredSettings = [ordered]@{
