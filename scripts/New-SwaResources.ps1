@@ -112,6 +112,31 @@ function Get-DeploymentToken {
     return $token.Trim()
 }
 
+# Static Web App のホスト名を取得し、GitHub OAuth 設定用の URL を案内する
+function Show-GitHubOAuthInstructions {
+    param(
+        [string]$Name,
+        [string]$ResourceGroup
+    )
+
+    $hostname = az staticwebapp show --name $Name --resource-group $ResourceGroup --query 'defaultHostname' -o tsv 2>$null
+    if ($LASTEXITCODE -ne 0 -or -not $hostname) {
+        Write-Warning 'Failed to resolve Static Web App hostname. Run "az staticwebapp show" manually to obtain URLs for the GitHub OAuth App.'
+        return
+    }
+
+    $homepageUrl = "https://$hostname/"
+    $callbackUrl = "https://$hostname/.auth/login/github/callback"
+
+    Write-Host "`n[TODO] Configure GitHub OAuth App" -ForegroundColor Yellow
+    Write-Host "  Homepage URL: $homepageUrl"
+    Write-Host "  Authorization callback URL: $callbackUrl"
+    Write-Host "  Next steps:" -ForegroundColor Yellow
+    Write-Host '    1. GitHub > Settings > Developer settings > OAuth Apps > New OAuth App を開く'
+    Write-Host '    2. 上記 URL を入力してアプリを作成し、Client ID/Secret を保管'
+    Write-Host '    3. scripts/Set-SwaAppSettings.ps1 で GITHUB_CLIENT_ID / GITHUB_CLIENT_SECRET などを設定'
+}
+
 # GitHub リポジトリのシークレットを設定する関数（GitHub CLI を使用）
 function Set-GitHubSecret {
     param(
@@ -183,7 +208,11 @@ if (-not $existingApp) {
 
     Set-GitHubSecret -Repo $targetGitHubRepo -SecretValue $deploymentToken
     Write-Host "[SUCCESS] GitHub secret '$GitHubSecretNameConst' updated for $targetGitHubRepo." -ForegroundColor Green
+
+    Show-GitHubOAuthInstructions -Name $Name -ResourceGroup $ResourceGroupName
 }
 else {
     Write-Info "Static Web App '$Name' already exists. Use --Force to recreate."
+
+    Show-GitHubOAuthInstructions -Name $Name -ResourceGroup $ResourceGroupName
 }
