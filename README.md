@@ -15,7 +15,7 @@ Private/Internal な GitHub リポジトリのドキュメントを Azure Static
 - GitHub OAuth App を作成できる GitHub アカウント (組織リポジトリの場合は Org 権限も必要)
 - Node.js 18 以降と npm (ローカル検証・Static Web Apps CLI 用)
 - PowerShell 7 以上 (リポジトリ同梱スクリプトは PowerShell Core 用)
-- GitHub CLI (`gh`) ※ `--github-repo` でシークレットを自動設定する場合に必要
+- GitHub CLI (`gh`) ※ `--update-github-secret` でシークレットを自動設定する場合に必要
 
 ## 構築手順
 
@@ -34,7 +34,7 @@ npx @azure/static-web-apps-cli start ./docs --api-location api --swa-config-loca
 
 ### 2. Azure Static Web Apps リソース作成
 
-- `scripts/New-SwaResources.ps1` (PowerShell Core) でリソース グループと SWA を一括作成できます。デフォルトで `rg-<repo-name>-prod` / `stapp-<repo-name>-prod` を利用し、アプリ/Functions パスも現在の構成 (`docs`, `api`) が自動で指定されます。既に同名の Static Web App が存在する場合は何もしませんが、`--Force` を付けると既存のアプリを削除してから再作成します (リソース グループは削除しません)。スクリプトは内部で `Prepare-LocalEnvironment.ps1` を呼び出して npm install や CLI 拡張確認を済ませたうえで、Azure リソース作成とデプロイトークン取得/シークレット更新まで実行します。
+- `scripts/New-SwaResources.ps1` (PowerShell Core) でリソース グループと SWA を一括作成できます。デフォルトで `rg-<repo-name>-prod` / `stapp-<repo-name>-prod` を利用し、アプリ/Functions パスも現在の構成 (`docs`, `api`) が自動で指定されます。既に同名の Static Web App が存在する場合は何もしませんが、`--Force` を付けると既存のアプリを削除してから再作成します (リソース グループは削除しません)。ローカル依存関係や CLI 拡張は事前に `Prepare-LocalEnvironment.ps1` で整えてから実行してください。Azure リソース作成後はデプロイトークンを取得し、必要に応じて GitHub シークレット更新まで行えます。
 - Static Web Apps は Microsoft Learn の [公式ドキュメント](https://learn.microsoft.com/azure/static-web-apps/deploy-web-framework#create-a-static-web-app-on-azure) にある通りグローバル分散サービスであり、SWA 本体のロケーション指定は不要です（リソース グループのリージョンは `japaneast` を既定にしています）。
 
 ```bash
@@ -42,11 +42,10 @@ npx @azure/static-web-apps-cli start ./docs --api-location api --swa-config-loca
 pwsh ./scripts/New-SwaResources.ps1
 
 # GitHub シークレットまで自動更新する場合 (gh CLI & PAT が必要)
-pwsh ./scripts/New-SwaResources.ps1 \
-  --github-repo your-org/swa-github-repo-auth
+pwsh ./scripts/New-SwaResources.ps1 --update-github-secret
 ```
 
-- `--github-repo <owner/repo>` を指定すると、SWA から取得したデプロイトークンを GitHub CLI (`gh secret set`) で `AZURE_STATIC_WEB_APPS_API_TOKEN` シークレットに保存します。別名で登録したい場合は `--GitHubSecretName` を上書きしてください。
+- `--update-github-secret` を指定すると、SWA から取得したデプロイトークンを GitHub CLI (`gh secret set`) で `AZURE_STATIC_WEB_APPS_API_TOKEN` シークレットに保存します。対象リポジトリは `git remote origin` を自動解決し、シークレット名は固定です。
 - `.github/workflows/deploy-azure-static-web-apps.yml` が本リポジトリに含まれているため、スクリプトで取得したデプロイトークンをシークレットに登録するだけで GitHub Actions から SWA へデプロイできます。
 
 ### 3. GitHub OAuth App の作成

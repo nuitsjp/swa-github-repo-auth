@@ -5,11 +5,11 @@
 ローカル依存関係を初期化し、Azure Static Web App をプロビジョニングしてデプロイトークンを取得します。
 
 .DESCRIPTION
-リポジトリルートと api フォルダーの npm install を実行し（既にインストール済みの場合はスキップ）、
-Azure Static Web Apps CLI 拡張機能がインストールされていることを確認します。必要に応じて Static Web App
-リソースを作成または再作成し、デプロイトークンを取得します。`--GitHubRepo` を指定すると、取得した
-デプロイトークンを GitHub CLI (`gh secret set`) でシークレットに登録し、同梱の
-`.github/workflows/deploy-azure-static-web-apps.yml` が利用できる状態にします。
+Azure Static Web App リソースを作成または再作成し、デプロイトークンを取得します。ローカル依存関係や
+CLI 拡張のインストールは `scripts/Prepare-LocalEnvironment.ps1` に分離されているため、このスクリプトを
+実行する前に準備を済ませてください。`--UpdateGitHubSecret` を指定すると、取得したデプロイトークンを
+GitHub CLI (`gh secret set`) でカレントリポジトリ（git remote origin）の `AZURE_STATIC_WEB_APPS_API_TOKEN`
+シークレットに登録し、同梱の `.github/workflows/deploy-azure-static-web-apps.yml` が利用できる状態にします。
 
 .PARAMETER ResourceGroupName
 デフォルトのリソースグループ名を上書きします（デフォルト: rg-<repo>-prod）。
@@ -23,17 +23,14 @@ Static Web App 名を上書きします（デフォルト: stapp-<repo>-prod）�
 .PARAMETER Sku
 Static Web App の SKU（Free、Standard、Dedicated）。
 
-.PARAMETER GitHubRepo
-更新対象の GitHub リポジトリ（形式: owner/repo）。指定すると GitHub シークレットが自動更新されます。
-
-.PARAMETER GitHubSecretName
-更新する GitHub シークレット名。デフォルトは AZURE_STATIC_WEB_APPS_API_TOKEN。
+.PARAMETER UpdateGitHubSecret
+現在の git リポジトリ（remote origin）に `AZURE_STATIC_WEB_APPS_API_TOKEN` シークレットを登録します。
 
 .PARAMETER Force
 依存関係の再インストール、SWA CLI 拡張機能の再インストール、および既存の Static Web App 再作成を強制します。
 
 .EXAMPLE
-pwsh ./scripts/New-SwaResources.ps1 --GitHubRepo your-org/your-repo
+pwsh ./scripts/New-SwaResources.ps1 --UpdateGitHubSecret
 
 必要に応じてリポジトリを準備し、Static Web App を作成し、デプロイトークンを GitHub シークレットに登録します。
 #>
@@ -44,10 +41,11 @@ param(
     [string]$ResourceGroupLocation = 'japaneast',
     [ValidateSet('Free','Standard','Dedicated')]
     [string]$Sku = 'Standard',
-    [string]$GitHubRepo,
-    [string]$GitHubSecretName = 'AZURE_STATIC_WEB_APPS_API_TOKEN',
+    [switch]$UpdateGitHubSecret,
     [switch]$Force
 )
+
+Set-Variable -Name GitHubSecretNameConst -Value 'AZURE_STATIC_WEB_APPS_API_TOKEN' -Option Constant
 
 # 情報メッセージをシアン色で出力するヘルパー関数
 function Write-Info {
@@ -64,6 +62,21 @@ function Resolve-RepoName {
         $repoRoot = (Get-Location).Path
     }
     return (Split-Path $repoRoot -Leaf)
+}
+
+function Resolve-GitHubRepoSlug {
+    $remoteUrl = $(git remote get-url origin 2>$null)
+    if (-not $remoteUrl) {
+        throw 'Failed to determine GitHub repository. Configure git remote "origin" first.'
+    }
+
+    $remoteUrl = $remoteUrl.Trim()
+    $pattern = 'github\.com[:/](?<owner>[^/]+?)/(?<repo>[^/]+?)(?:\.git)?$'
+    if ($remoteUrl -match $pattern) {
+        return "$($matches.owner)/$($matches.repo)"
+    }
+
+    throw "Unable to parse GitHub repository from remote URL '$remoteUrl'."
 }
 
 
@@ -85,11 +98,16 @@ function Remove-StaticWebApp {
 
 # デプロイメントトークンを取得する関数
 function Get-DeploymentToken {
-    param([string]$Name,[string]$ResourceGroup)
-    $token = az staticwebapp secrets list --name $Name --resource-group $ResourceGroup --query deploymentToken -o tsv 2>$null
+    param(
+        [string]$Name,
+        [string]$ResourceGroup
+    )
+
+    $token = az staticwebapp secrets list --name $Name --resource-group $ResourceGroup --query "properties.apiKey" -o tsv 2>$null
     if ($LASTEXITCODE -ne 0 -or -not $token) {
         throw 'Failed to retrieve deployment token. Ensure the Static Web App exists and you have sufficient permissions.'
     }
+
     return $token.Trim()
 }
 
@@ -97,7 +115,6 @@ function Get-DeploymentToken {
 function Set-GitHubSecret {
     param(
         [string]$Repo,
-        [string]$SecretName,
         [string]$SecretValue
     )
 
@@ -105,8 +122,8 @@ function Set-GitHubSecret {
         throw "GitHub CLI (gh) is required to update repository secrets. Install it from https://cli.github.com/."
     }
 
-    Write-Info "Updating GitHub secret '$SecretName' in '$Repo'."
-    gh secret set $SecretName --repo $Repo --body $SecretValue | Out-Null
+    Write-Info "Updating GitHub secret '$GitHubSecretNameConst' in '$Repo'."
+    gh secret set $GitHubSecretNameConst --repo $Repo --body $SecretValue | Out-Null
 }
 
 # リポジトリ名の解決（デフォルトのリソース名生成に使用）
@@ -128,14 +145,10 @@ if (-not $ResourceGroupLocation) {
     throw 'Resource group location is required.'
 }
 
-$scriptDir = Split-Path -Parent $PSCommandPath
-$prepareScript = Join-Path $scriptDir 'Prepare-LocalEnvironment.ps1'
-if (-not (Test-Path $prepareScript)) {
-    throw "Local preparation script not found at $prepareScript"
+$targetGitHubRepo = $null
+if ($UpdateGitHubSecret) {
+    $targetGitHubRepo = Resolve-GitHubRepoSlug
 }
-
-Write-Info 'Running local preparation script...'
-& $prepareScript -Force:$Force
 
 # リソースグループの作成または確認
 Write-Info "Ensuring resource group '$ResourceGroupName' exists in '$ResourceGroupLocation'..."
@@ -170,9 +183,9 @@ $deploymentToken = Get-DeploymentToken -Name $Name -ResourceGroup $ResourceGroup
 Write-Info 'Deployment token retrieved.'
 
 # GitHub リポジトリが指定されている場合はシークレットを更新
-if ($GitHubRepo) {
-    Set-GitHubSecret -Repo $GitHubRepo -SecretName $GitHubSecretName -SecretValue $deploymentToken
-    Write-Host "[SUCCESS] GitHub secret '$GitHubSecretName' updated for $GitHubRepo." -ForegroundColor Green
+if ($targetGitHubRepo) {
+    Set-GitHubSecret -Repo $targetGitHubRepo -SecretValue $deploymentToken
+    Write-Host "[SUCCESS] GitHub secret '$GitHubSecretNameConst' updated for $targetGitHubRepo." -ForegroundColor Green
 } else {
-    Write-Host "[SUCCESS] Static Web App '$Name' is ready. Add the deployment token to your GitHub secrets (e.g., gh secret set $GitHubSecretName --repo <owner/repo>)." -ForegroundColor Green
+    Write-Host "[SUCCESS] Static Web App '$Name' is ready. Add the deployment token to your GitHub secrets (e.g., gh secret set $GitHubSecretNameConst --repo <owner/repo>)." -ForegroundColor Green
 }

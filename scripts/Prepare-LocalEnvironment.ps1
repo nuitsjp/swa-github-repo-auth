@@ -15,11 +15,14 @@ param(
     [switch]$Force
 )
 
+# 情報メッセージをシアン色で出力するヘルパー関数
 function Write-Info {
     param([string]$Message)
     Write-Host "[INFO] $Message" -ForegroundColor Cyan
 }
 
+# npm 依存関係のインストールを確認・実行する関数
+# 既に node_modules が存在する場合はスキップ（-ForceInstall で強制再インストール可能）
 function Ensure-NpmDependencies {
     param(
         [Parameter(Mandatory)] [string]$WorkingDirectory,
@@ -44,16 +47,20 @@ function Ensure-NpmDependencies {
         npm install | Out-Null
     }
     finally {
+        # 元のディレクトリに必ず戻る
         Pop-Location
     }
 }
 
+# Azure CLI (az) の存在確認
 function Ensure-AzCli {
     if (-not (Get-Command az -ErrorAction SilentlyContinue)) {
         throw 'Azure CLI (az) is required. Install it from https://learn.microsoft.com/cli/azure/install-azure-cli'
     }
 }
 
+# Azure Static Web Apps CLI 拡張機能のインストール・確認
+# -ForceInstall で既存拡張機能を削除して再インストール
 function Ensure-StaticWebAppsExtension {
     param([switch]$ForceInstall)
 
@@ -78,21 +85,32 @@ function Ensure-StaticWebAppsExtension {
     }
 }
 
+# 必須ツール: npm の存在確認（Node.js 18+ に含まれる）
 if (-not (Get-Command npm -ErrorAction SilentlyContinue)) {
     throw 'npm is required. Install Node.js 18+ which includes npm.'
 }
 
+# スクリプトディレクトリとリポジトリルートの解決
 $scriptDir = Split-Path -Parent $PSCommandPath
 $repoRoot = (Resolve-Path (Join-Path $scriptDir '..')).Path
 $apiDir = Join-Path $repoRoot 'api'
 
+# API ディレクトリの存在確認
 if (-not (Test-Path $apiDir)) {
     throw "API directory not found at $apiDir"
 }
 
+# 依存関係のインストール（ルートディレクトリ: SWA CLI など）
 Ensure-NpmDependencies -WorkingDirectory $repoRoot -Label 'root' -ForceInstall:$Force
+
+# 依存関係のインストール（API ディレクトリ: Azure Functions ランタイムなど）
 Ensure-NpmDependencies -WorkingDirectory $apiDir -Label 'api' -ForceInstall:$Force
+
+# Azure CLI の存在確認
 Ensure-AzCli
+
+# Azure Static Web Apps CLI 拡張機能のインストール・更新
 Ensure-StaticWebAppsExtension -ForceInstall:$Force
 
+# ローカル開発環境の準備完了メッセージ
 Write-Host '[SUCCESS] Local prerequisites are ready.' -ForegroundColor Green
