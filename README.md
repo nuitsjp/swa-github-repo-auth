@@ -78,6 +78,30 @@ pwsh ./scripts/Set-SwaAppSettings.ps1 \
 3. `/admin/` など保護されたルートにアクセスし、権限に応じた挙動になっているか検証
 4. `/.auth/logout` でサインアウトして再度アクセス制御を確認
 
+### 6. ローカル検証 (Lint / テスト)
+
+`api/` 配下の Azure Functions は ESLint と Jest を利用して静的解析とユニットテストを実行します。まず `api/` ディレクトリで依存関係をインストールし、Lint とテストを実行してください。
+
+```bash
+cd api
+npm install
+npm run lint
+npm test
+```
+
+- `npm run lint` は `eslint .` を実行し、Node.js 18 向けの推奨ルールでコード品質を確認します。
+- `npm test` は Jest によるカバレッジ収集付き実行で、グローバル閾値 (branches/functions/lines/statements はすべて 90%) を満たすように構成されています。
+
+### 7. CI/CD (GitHub Actions)
+
+`CI` ワークフロー (`.github/workflows/ci.yml`) を追加しており、以下を自動で検証します。
+
+- イベント: `push` / `pull_request`
+- Node.js 18 のセットアップ後に `api/` ディレクトリで `npm ci` → `npm run lint` → `npm test`
+- Lint あるいはテストの失敗・カバレッジ閾値未達の際はワークフローがエラー終了
+
+リポジトリへ Push すると自動的にワークフローが実行され、Pull Request でも同様のチェックが走ります。GitHub CLI の `gh run list` や `gh run watch` を利用すると、ローカル端末から結果を確認できます。
+
 ## アーキテクチャ資料
 
 - 詳細なシーケンス図やコンポーネント構成は `docs/architecture.md` を参照してください。
