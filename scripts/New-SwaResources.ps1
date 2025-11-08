@@ -24,7 +24,7 @@ Static Web App 名を上書きします（デフォルト: stapp-<repo>-prod）�
 Static Web App の SKU（Free、Standard、Dedicated）。
 
 .PARAMETER Force
-依存関係の再インストール、SWA CLI 拡張機能の再インストール、および既存の Static Web App 再作成を強制します。
+既存のリソースグループ（および配下の Static Web App）を削除してから再作成します。
 
 .EXAMPLE
 pwsh ./scripts/New-SwaResources.ps1
@@ -41,6 +41,7 @@ param(
     [switch]$Force
 )
 
+Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 Set-Variable -Name GitHubSecretNameConst -Value 'AZURE_STATIC_WEB_APPS_API_TOKEN' -Option Constant
@@ -96,12 +97,6 @@ function Get-StaticWebApp {
     return $null
 }
 
-# Static Web App を削除する関数
-function Remove-StaticWebApp {
-    param([string]$Name,[string]$ResourceGroup)
-    az staticwebapp delete --name $Name --resource-group $ResourceGroup --yes | Out-Null
-}
-
 # デプロイメントトークンを取得する関数
 function Get-DeploymentToken {
     param(
@@ -153,6 +148,12 @@ $targetGitHubRepo = "$($repoContext.GitHubOwner)/$($repoContext.GitHubRepo)"
 
 # リソースグループの作成または確認
 $resourceGroupExists = Get-ResourceGroup -Name $ResourceGroupName
+if ($Force -and $resourceGroupExists) {
+    Write-Info "Force specified. Deleting resource group '$ResourceGroupName'."
+    az group delete --name $ResourceGroupName --yes | Out-Null
+    $resourceGroupExists = $false
+}
+
 if (-not $resourceGroupExists) {
     Write-Info "Creating resource group '$ResourceGroupName' in '$ResourceGroupLocation'..."
     az group create --name $ResourceGroupName --location $ResourceGroupLocation | Out-Null
@@ -160,12 +161,9 @@ if (-not $resourceGroupExists) {
     Write-Info "Resource group '$ResourceGroupName' already exists."
 }
 
-# 既存の Static Web App を確認（-Force が指定されている場合は削除）
-$existingApp = Get-StaticWebApp -Name $Name -ResourceGroup $ResourceGroupName
-if ($existingApp -and $Force) {
-    Write-Info "Force specified. Deleting existing Static Web App '$Name'."
-    Remove-StaticWebApp -Name $Name -ResourceGroup $ResourceGroupName
-    $existingApp = $null
+$existingApp = $null
+if (-not $Force) {
+    $existingApp = Get-StaticWebApp -Name $Name -ResourceGroup $ResourceGroupName
 }
 
 # Static Web App の作成（存在しない場合のみ）
@@ -179,17 +177,13 @@ if (-not $existingApp) {
 
     Write-Info "Creating Static Web App '$Name'..."
     az @createArgs | Out-Null
+
+    $deploymentToken = Get-DeploymentToken -Name $Name -ResourceGroup $ResourceGroupName
+    Write-Info 'Deployment token retrieved.'
+
+    Set-GitHubSecret -Repo $targetGitHubRepo -SecretValue $deploymentToken
+    Write-Host "[SUCCESS] GitHub secret '$GitHubSecretNameConst' updated for $targetGitHubRepo." -ForegroundColor Green
 }
 else {
     Write-Info "Static Web App '$Name' already exists. Use --Force to recreate."
 }
-
-# デプロイメントトークンの取得
-$deploymentToken = Get-DeploymentToken -Name $Name -ResourceGroup $ResourceGroupName
-Write-Info 'Deployment token retrieved.'
-
-# GitHub シークレットを更新
-Set-GitHubSecret -Repo $targetGitHubRepo -SecretValue $deploymentToken
-Write-Host "[SUCCESS] GitHub secret '$GitHubSecretNameConst' updated for $targetGitHubRepo." -ForegroundColor Green
-Set-StrictMode -Version Latest
-$ErrorActionPreference = 'Stop'

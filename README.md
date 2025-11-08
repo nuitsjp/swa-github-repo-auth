@@ -34,7 +34,7 @@ npx @azure/static-web-apps-cli start ./docs --api-location api --swa-config-loca
 
 ### 2. Azure Static Web Apps リソース作成
 
-- `scripts/New-SwaResources.ps1` (PowerShell Core) でリソース グループと SWA を一括作成できます。デフォルトで `rg-<repo-name>-prod` / `stapp-<repo-name>-prod` を利用し、アプリ/Functions パスも現在の構成 (`docs`, `api`) が自動で指定されます。既に同名の Static Web App が存在する場合は何もしませんが、`--Force` を付けると既存のアプリを削除してから再作成します (リソース グループは削除しません)。ローカル依存関係や CLI 拡張は事前に `Prepare-LocalEnvironment.ps1` で整えてから実行してください。Azure リソース作成後はデプロイトークンを取得し、必要に応じて GitHub シークレット更新まで行えます。
+- `scripts/New-SwaResources.ps1` (PowerShell Core) でリソース グループと SWA を一括作成できます。デフォルトで `rg-<repo-name>-prod` / `stapp-<repo-name>-prod` を利用し、アプリ/Functions パスも現在の構成 (`docs`, `api`) が自動で指定されます。`--Force` を付けると既存のリソースグループごと削除してから再作成するため、SWA もまとめて再プロビジョニングされます。ローカル依存関係や CLI 拡張は事前に `Prepare-LocalEnvironment.ps1` で整えてから実行してください。Azure リソース作成後はデプロイトークンを取得し、GitHub シークレットを自動で更新します。
 - Static Web Apps は Microsoft Learn の [公式ドキュメント](https://learn.microsoft.com/azure/static-web-apps/deploy-web-framework#create-a-static-web-app-on-azure) にある通りグローバル分散サービスであり、SWA 本体のロケーション指定は不要です（リソース グループのリージョンは `japaneast` を既定にしています）。
 
 ```bash
