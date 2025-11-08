@@ -45,6 +45,8 @@ param(
     [switch]$Force
 )
 
+$ErrorActionPreference = 'Stop'
+
 Set-Variable -Name GitHubSecretNameConst -Value 'AZURE_STATIC_WEB_APPS_API_TOKEN' -Option Constant
 
 # 情報メッセージをシアン色で出力するヘルパー関数
@@ -56,28 +58,24 @@ function Write-Info {
 
 # リポジトリ名および GitHub スラッグを解決する関数
 function Resolve-RepoContext {
-    $repoRoot = $(git rev-parse --show-toplevel 2>$null)
-    if (-not $repoRoot) {
-        $repoRoot = (Get-Location).Path
-    }
-    $repoName = Split-Path $repoRoot -Leaf
-
-    $remoteSlug = $null
-    $remoteUrl = $(git -C $repoRoot remote get-url origin 2>$null)
+    $remoteOwner = $null
+    $remoteName = $null
+    $remoteUrl = $(git remote get-url origin 2>$null)
     if ($remoteUrl) {
         $remoteUrl = $remoteUrl.Trim()
         $pattern = 'github\.com[:/](?<owner>[^/]+?)/(?<repo>[^/]+?)(?:\.git)?$'
         if ($remoteUrl -match $pattern) {
-            $remoteSlug = "$($matches.owner)/$($matches.repo)"
+            $remoteOwner = $matches.owner
+            $remoteName = $matches.repo
         }
         else {
-            Write-Info "Unable to parse GitHub slug from remote URL '$remoteUrl'."
+            throw "Unable to parse GitHub slug from remote URL '$remoteUrl'."
         }
     }
 
     return [pscustomobject]@{
-        Name = $repoName
-        GitHubSlug = $remoteSlug
+        GitHubOwner = $remoteOwner
+        GitHubRepo = $remoteName
     }
 }
 
@@ -128,9 +126,9 @@ function Set-GitHubSecret {
     gh secret set $GitHubSecretNameConst --repo $Repo --body $SecretValue | Out-Null
 }
 
-# リポジトリ情報の解決（リソース名や GitHub スラッグに使用）
+# リポジトリ情報の解決（リソース名や GitHub リモートに使用）
 $repoContext = Resolve-RepoContext
-$repoName = $repoContext.Name
+$repoName = if ($repoContext.GitHubRepo) { $repoContext.GitHubRepo } else { Split-Path (Get-Location).Path -Leaf }
 if (-not $repoName) {
     throw 'Failed to determine repository name.'
 }
@@ -150,10 +148,10 @@ if (-not $ResourceGroupLocation) {
 
 $targetGitHubRepo = $null
 if ($UpdateGitHubSecret) {
-    if (-not $repoContext.GitHubSlug) {
+    if (-not $repoContext.GitHubOwner -or -not $repoContext.GitHubRepo) {
         throw 'Failed to determine GitHub repository. Configure git remote "origin" pointing to github.com before using --UpdateGitHubSecret.'
     }
-    $targetGitHubRepo = $repoContext.GitHubSlug
+    $targetGitHubRepo = "$($repoContext.GitHubOwner)/$($repoContext.GitHubRepo)"
 }
 
 # リソースグループの作成または確認
@@ -195,3 +193,5 @@ if ($targetGitHubRepo) {
 } else {
     Write-Host "[SUCCESS] Static Web App '$Name' is ready. Add the deployment token to your GitHub secrets (e.g., gh secret set $GitHubSecretNameConst --repo <owner/repo>)." -ForegroundColor Green
 }
+Set-StrictMode -Version Latest
+$ErrorActionPreference = 'Stop'
