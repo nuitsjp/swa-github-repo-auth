@@ -54,29 +54,31 @@ function Write-Info {
 }
 
 
-# Git リポジトリのルート名を取得する関数
-# git コマンドが利用できない場合は現在のディレクトリ名を使用
-function Resolve-RepoName {
+# リポジトリ名および GitHub スラッグを解決する関数
+function Resolve-RepoContext {
     $repoRoot = $(git rev-parse --show-toplevel 2>$null)
     if (-not $repoRoot) {
         $repoRoot = (Get-Location).Path
     }
-    return (Split-Path $repoRoot -Leaf)
-}
+    $repoName = Split-Path $repoRoot -Leaf
 
-function Resolve-GitHubRepoSlug {
-    $remoteUrl = $(git remote get-url origin 2>$null)
-    if (-not $remoteUrl) {
-        throw 'Failed to determine GitHub repository. Configure git remote "origin" first.'
+    $remoteSlug = $null
+    $remoteUrl = $(git -C $repoRoot remote get-url origin 2>$null)
+    if ($remoteUrl) {
+        $remoteUrl = $remoteUrl.Trim()
+        $pattern = 'github\.com[:/](?<owner>[^/]+?)/(?<repo>[^/]+?)(?:\.git)?$'
+        if ($remoteUrl -match $pattern) {
+            $remoteSlug = "$($matches.owner)/$($matches.repo)"
+        }
+        else {
+            Write-Info "Unable to parse GitHub slug from remote URL '$remoteUrl'."
+        }
     }
 
-    $remoteUrl = $remoteUrl.Trim()
-    $pattern = 'github\.com[:/](?<owner>[^/]+?)/(?<repo>[^/]+?)(?:\.git)?$'
-    if ($remoteUrl -match $pattern) {
-        return "$($matches.owner)/$($matches.repo)"
+    return [pscustomobject]@{
+        Name = $repoName
+        GitHubSlug = $remoteSlug
     }
-
-    throw "Unable to parse GitHub repository from remote URL '$remoteUrl'."
 }
 
 
@@ -126,8 +128,9 @@ function Set-GitHubSecret {
     gh secret set $GitHubSecretNameConst --repo $Repo --body $SecretValue | Out-Null
 }
 
-# リポジトリ名の解決（デフォルトのリソース名生成に使用）
-$repoName = Resolve-RepoName
+# リポジトリ情報の解決（リソース名や GitHub スラッグに使用）
+$repoContext = Resolve-RepoContext
+$repoName = $repoContext.Name
 if (-not $repoName) {
     throw 'Failed to determine repository name.'
 }
@@ -147,7 +150,10 @@ if (-not $ResourceGroupLocation) {
 
 $targetGitHubRepo = $null
 if ($UpdateGitHubSecret) {
-    $targetGitHubRepo = Resolve-GitHubRepoSlug
+    if (-not $repoContext.GitHubSlug) {
+        throw 'Failed to determine GitHub repository. Configure git remote "origin" pointing to github.com before using --UpdateGitHubSecret.'
+    }
+    $targetGitHubRepo = $repoContext.GitHubSlug
 }
 
 # リソースグループの作成または確認
