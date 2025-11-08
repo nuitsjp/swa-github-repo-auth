@@ -7,9 +7,9 @@
 .DESCRIPTION
 Azure Static Web App リソースを作成または再作成し、デプロイトークンを取得します。ローカル依存関係や
 CLI 拡張のインストールは `scripts/Prepare-LocalEnvironment.ps1` に分離されているため、このスクリプトを
-実行する前に準備を済ませてください。`--UpdateGitHubSecret` を指定すると、取得したデプロイトークンを
+実行する前に準備を済ませてください。Static Web App プロビジョニング後は、取得したデプロイトークンを
 GitHub CLI (`gh secret set`) でカレントリポジトリ（git remote origin）の `AZURE_STATIC_WEB_APPS_API_TOKEN`
-シークレットに登録し、同梱の `.github/workflows/deploy-azure-static-web-apps.yml` が利用できる状態にします。
+シークレットに必ず登録し、同梱の `.github/workflows/deploy-azure-static-web-apps.yml` が利用できる状態にします。
 
 .PARAMETER ResourceGroupName
 デフォルトのリソースグループ名を上書きします（デフォルト: rg-<repo>-prod）。
@@ -23,14 +23,11 @@ Static Web App 名を上書きします（デフォルト: stapp-<repo>-prod）�
 .PARAMETER Sku
 Static Web App の SKU（Free、Standard、Dedicated）。
 
-.PARAMETER UpdateGitHubSecret
-現在の git リポジトリ（remote origin）に `AZURE_STATIC_WEB_APPS_API_TOKEN` シークレットを登録します。
-
 .PARAMETER Force
 依存関係の再インストール、SWA CLI 拡張機能の再インストール、および既存の Static Web App 再作成を強制します。
 
 .EXAMPLE
-pwsh ./scripts/New-SwaResources.ps1 --UpdateGitHubSecret
+pwsh ./scripts/New-SwaResources.ps1
 
 必要に応じてリポジトリを準備し、Static Web App を作成し、デプロイトークンを GitHub シークレットに登録します。
 #>
@@ -41,7 +38,6 @@ param(
     [string]$ResourceGroupLocation = 'japaneast',
     [ValidateSet('Free','Standard','Dedicated')]
     [string]$Sku = 'Standard',
-    [switch]$UpdateGitHubSecret,
     [switch]$Force
 )
 
@@ -58,25 +54,35 @@ function Write-Info {
 
 # リポジトリ名および GitHub スラッグを解決する関数
 function Resolve-RepoContext {
-    $remoteOwner = $null
-    $remoteName = $null
     $remoteUrl = $(git remote get-url origin 2>$null)
-    if ($remoteUrl) {
-        $remoteUrl = $remoteUrl.Trim()
-        $pattern = 'github\.com[:/](?<owner>[^/]+?)/(?<repo>[^/]+?)(?:\.git)?$'
-        if ($remoteUrl -match $pattern) {
-            $remoteOwner = $matches.owner
-            $remoteName = $matches.repo
-        }
-        else {
-            throw "Unable to parse GitHub slug from remote URL '$remoteUrl'."
-        }
+    if (-not $remoteUrl) {
+        throw 'Failed to determine GitHub repository. Ensure git remote "origin" is configured.'
+    }
+
+    $remoteUrl = $remoteUrl.Trim()
+    $pattern = 'github\.com[:/](?<owner>[^/]+?)/(?<repo>[^/]+?)(?:\.git)?$'
+    if (-not ($remoteUrl -match $pattern)) {
+        throw "Unable to parse GitHub slug from remote URL '$remoteUrl'."
+    }
+
+    $repoName = $matches.repo
+    if (-not $repoName) {
+        throw 'Failed to determine repository name.'
     }
 
     return [pscustomobject]@{
-        GitHubOwner = $remoteOwner
-        GitHubRepo = $remoteName
+        GitHubOwner = $matches.owner
+        GitHubRepo = $repoName
     }
+}
+
+function Get-ResourceGroup {
+    param([string]$Name)
+    $output = az group show --name $Name 2>$null
+    if ($LASTEXITCODE -eq 0 -and $output) {
+        return $true
+    }
+    return $false
 }
 
 
@@ -128,10 +134,7 @@ function Set-GitHubSecret {
 
 # リポジトリ情報の解決（リソース名や GitHub リモートに使用）
 $repoContext = Resolve-RepoContext
-$repoName = if ($repoContext.GitHubRepo) { $repoContext.GitHubRepo } else { Split-Path (Get-Location).Path -Leaf }
-if (-not $repoName) {
-    throw 'Failed to determine repository name.'
-}
+$repoName = $repoContext.GitHubRepo
 
 # パラメータが未指定の場合はリポジトリ名に基づいてデフォルト値を設定
 if (-not $ResourceGroupName) {
@@ -146,17 +149,16 @@ if (-not $ResourceGroupLocation) {
     throw 'Resource group location is required.'
 }
 
-$targetGitHubRepo = $null
-if ($UpdateGitHubSecret) {
-    if (-not $repoContext.GitHubOwner -or -not $repoContext.GitHubRepo) {
-        throw 'Failed to determine GitHub repository. Configure git remote "origin" pointing to github.com before using --UpdateGitHubSecret.'
-    }
-    $targetGitHubRepo = "$($repoContext.GitHubOwner)/$($repoContext.GitHubRepo)"
-}
+$targetGitHubRepo = "$($repoContext.GitHubOwner)/$($repoContext.GitHubRepo)"
 
 # リソースグループの作成または確認
-Write-Info "Ensuring resource group '$ResourceGroupName' exists in '$ResourceGroupLocation'..."
-az group create --name $ResourceGroupName --location $ResourceGroupLocation | Out-Null
+$resourceGroupExists = Get-ResourceGroup -Name $ResourceGroupName
+if (-not $resourceGroupExists) {
+    Write-Info "Creating resource group '$ResourceGroupName' in '$ResourceGroupLocation'..."
+    az group create --name $ResourceGroupName --location $ResourceGroupLocation | Out-Null
+} else {
+    Write-Info "Resource group '$ResourceGroupName' already exists."
+}
 
 # 既存の Static Web App を確認（-Force が指定されている場合は削除）
 $existingApp = Get-StaticWebApp -Name $Name -ResourceGroup $ResourceGroupName
@@ -186,12 +188,8 @@ else {
 $deploymentToken = Get-DeploymentToken -Name $Name -ResourceGroup $ResourceGroupName
 Write-Info 'Deployment token retrieved.'
 
-# GitHub リポジトリが指定されている場合はシークレットを更新
-if ($targetGitHubRepo) {
-    Set-GitHubSecret -Repo $targetGitHubRepo -SecretValue $deploymentToken
-    Write-Host "[SUCCESS] GitHub secret '$GitHubSecretNameConst' updated for $targetGitHubRepo." -ForegroundColor Green
-} else {
-    Write-Host "[SUCCESS] Static Web App '$Name' is ready. Add the deployment token to your GitHub secrets (e.g., gh secret set $GitHubSecretNameConst --repo <owner/repo>)." -ForegroundColor Green
-}
+# GitHub シークレットを更新
+Set-GitHubSecret -Repo $targetGitHubRepo -SecretValue $deploymentToken
+Write-Host "[SUCCESS] GitHub secret '$GitHubSecretNameConst' updated for $targetGitHubRepo." -ForegroundColor Green
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
