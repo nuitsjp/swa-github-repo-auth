@@ -29,7 +29,8 @@ npx @azure/static-web-apps-cli start ./docs --api-location api --swa-config-loca
 ```
 
 - `New-SwaResources.ps1 -PrepareOnly` がルート/`api/` の `npm install` と Azure CLI の Static Web Apps 拡張追加をまとめて実行します。既に依存関係が入っていれば自動でスキップされ、`--Force` を付けると既存の `node_modules` を削除して再インストールし、拡張機能も入れ直します。
-- `npx @azure/static-web-apps-cli start ./docs --api-location api --swa-config-location .` で静的ファイル (`docs/`) と Functions (`api/`) を同時に立ち上げ、`/.auth/me` や保護ルートを確認します。Static Web Apps CLI (`@azure/static-web-apps-cli`) は devDependencies に含まれているため、初期化スクリプト実行後にそのまま利用できます。
+- `.github/workflows/deploy-azure-static-web-apps.yml` は既に含まれており、`docs/`/`api/` を対象に `Azure/static-web-apps-deploy@v1` を実行します。Push/Pull Request に連動するため、リポジトリシークレット `AZURE_STATIC_WEB_APPS_API_TOKEN` を必ず登録してください。
+- `npx @azure/static-web-apps-cli start ./docs --api-location api --swa-config-location .` で静的ファイル (`docs/`) と Functions (`api/`) を同時に立ち上げ、`/.auth/me` や保護ルートを確認します。Static Web Apps CLI (`@azure/static-web-apps-cli`) は devDependencies に含まれているため、初期化フェーズのあとはそのまま利用できます。
 
 ### 2. Azure Static Web Apps リソース作成
 
@@ -40,13 +41,11 @@ npx @azure/static-web-apps-cli start ./docs --api-location api --swa-config-loca
 # 既定値で空の Static Web App を作成
 pwsh ./scripts/New-SwaResources.ps1
 
-# GitHub リポジトリと接続する場合
-pwsh ./scripts/New-SwaResources.ps1 \
-  --source https://github.com/<your-org>/swa-github-repo-auth \
-  --branch main \
-  --login-with-github
-
 # GitHub シークレットまで自動更新する場合 (gh CLI & PAT が必要)
+pwsh ./scripts/New-SwaResources.ps1 \
+  --github-repo your-org/swa-github-repo-auth
+
+# GitHub Actions 連携を Azure 作成時に自動構成する場合
 pwsh ./scripts/New-SwaResources.ps1 \
   --source https://github.com/<your-org>/swa-github-repo-auth \
   --branch main \
