@@ -9,8 +9,7 @@
 Azure Static Web Apps CLI 拡張機能がインストールされていることを確認します。必要に応じて Static Web App
 リソースを作成または再作成し、デプロイトークンを取得します。`--GitHubRepo` を指定すると、取得した
 デプロイトークンを GitHub CLI (`gh secret set`) でシークレットに登録し、同梱の
-`.github/workflows/deploy-azure-static-web-apps.yml` が利用できる状態にします。`-PrepareOnly` を指定すると
-準備処理のみを行います。
+`.github/workflows/deploy-azure-static-web-apps.yml` が利用できる状態にします。
 
 .PARAMETER ResourceGroupName
 デフォルトのリソースグループ名を上書きします（デフォルト: rg-<repo>-prod）。
@@ -24,9 +23,6 @@ Static Web App 名を上書きします（デフォルト: stapp-<repo>-prod）�
 .PARAMETER Sku
 Static Web App の SKU（Free、Standard、Dedicated）。
 
-.PARAMETER PrepareOnly
-Azure リソースを作成せず、ローカル依存関係のインストールと CLI 拡張確認のみ実行します。
-
 .PARAMETER GitHubRepo
 更新対象の GitHub リポジトリ（形式: owner/repo）。指定すると GitHub シークレットが自動更新されます。
 
@@ -35,11 +31,6 @@ Azure リソースを作成せず、ローカル依存関係のインストー�
 
 .PARAMETER Force
 依存関係の再インストール、SWA CLI 拡張機能の再インストール、および既存の Static Web App 再作成を強制します。
-
-.EXAMPLE
-pwsh ./scripts/New-SwaResources.ps1 -PrepareOnly
-
-Azure リソースを作成せずに npm install（root/api）を実行し、SWA CLI 拡張機能の存在を確認します。
 
 .EXAMPLE
 pwsh ./scripts/New-SwaResources.ps1 --GitHubRepo your-org/your-repo
@@ -53,7 +44,6 @@ param(
     [string]$ResourceGroupLocation = 'japaneast',
     [ValidateSet('Free','Standard','Dedicated')]
     [string]$Sku = 'Standard',
-    [switch]$PrepareOnly,
     [string]$GitHubRepo,
     [string]$GitHubSecretName = 'AZURE_STATIC_WEB_APPS_API_TOKEN',
     [switch]$Force
@@ -146,15 +136,6 @@ if (-not (Test-Path $prepareScript)) {
 
 Write-Info 'Running local preparation script...'
 & $prepareScript -Force:$Force
-
-# -PrepareOnly が指定された場合は準備タスクのみ実行してスクリプトを終了
-if ($PrepareOnly) {
-    if ($GitHubRepo) {
-        throw 'GitHubRepo cannot be used with -PrepareOnly because no Static Web App provisioning occurs.'
-    }
-    Write-Info 'Preparation tasks completed. Skipping Azure provisioning as requested.'
-    return
-}
 
 # リソースグループの作成または確認
 Write-Info "Ensuring resource group '$ResourceGroupName' exists in '$ResourceGroupLocation'..."

@@ -78,7 +78,7 @@ function Ensure-AzCli {
 function Ensure-StaticWebAppsExtensionInstalled {
     $null = az extension show --name staticwebapp 2>$null
     if ($LASTEXITCODE -ne 0) {
-        throw "Azure Static Web Apps CLI extension is missing. Run './scripts/New-SwaResources.ps1 -PrepareOnly' or install via 'az extension add --name staticwebapp'."
+        throw "Azure Static Web Apps CLI extension is missing. Run './scripts/Prepare-LocalEnvironment.ps1' or install via 'az extension add --name staticwebapp'."
     }
 }
 
