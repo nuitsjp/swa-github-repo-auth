@@ -58,16 +58,16 @@ function Main {
     # ============================================================
     Set-Variable -Name GitHubSecretNameConst -Value 'AZURE_STATIC_WEB_APPS_API_TOKEN' -Option Constant
 
-    $executionContext = Initialize-ExecutionContext -RequestedResourceGroupName $ResourceGroupName -RequestedStaticWebAppName $Name -ResourceGroupLocation $ResourceGroupLocation -Sku $Sku
-    $resourceState = Resolve-ResourceState -ExecutionContext $executionContext
-    $provisionResult = Ensure-StaticWebApp -ExecutionContext $executionContext -ResourceState $resourceState
+    $provisionContext = Initialize-ExecutionContext -RequestedResourceGroupName $ResourceGroupName -RequestedStaticWebAppName $Name -ResourceGroupLocation $ResourceGroupLocation -Sku $Sku
+    $resourceState = Resolve-ResourceState -Context $provisionContext
+    $provisionResult = Ensure-StaticWebApp -Context $provisionContext -ResourceState $resourceState
 
     $activeResourceGroup = $provisionResult.ResourceGroupName
 
-    Show-GitHubOAuthInstructions -Name $executionContext.StaticWebAppName -ResourceGroup $activeResourceGroup -SubscriptionId $executionContext.SubscriptionId
+    Show-GitHubOAuthInstructions -Name $provisionContext.StaticWebAppName -ResourceGroup $activeResourceGroup -SubscriptionId $provisionContext.SubscriptionId
 
     $credentials = Resolve-ClientCredentials -ClientId $ClientId -ClientSecret $ClientSecret
-    Set-AppSettings -Name $executionContext.StaticWebAppName -ResourceGroup $activeResourceGroup -SubscriptionId $executionContext.SubscriptionId -ClientId $credentials.ClientId -ClientSecret $credentials.ClientSecret -RepoOwner $executionContext.RepoOwner -RepoName $executionContext.RepoName
+    Set-AppSettings -Name $provisionContext.StaticWebAppName -ResourceGroup $activeResourceGroup -SubscriptionId $provisionContext.SubscriptionId -ClientId $credentials.ClientId -ClientSecret $credentials.ClientSecret -RepoOwner $provisionContext.RepoOwner -RepoName $provisionContext.RepoName
 }
 
 
@@ -474,17 +474,17 @@ function Initialize-ExecutionContext {
 }
 
 function Resolve-ResourceState {
-    param($ExecutionContext)
+    param($Context)
 
     Write-Info 'リソースの存在確認を実行しています...'
-    $targetRgExists = Test-ResourceGroupExists -Name $ExecutionContext.ResourceGroupName -SubscriptionId $ExecutionContext.SubscriptionId
-    $existingSwa = Get-StaticWebAppGlobal -Name $ExecutionContext.StaticWebAppName -SubscriptionId $ExecutionContext.SubscriptionId
+    $targetRgExists = Test-ResourceGroupExists -Name $Context.ResourceGroupName -SubscriptionId $Context.SubscriptionId
+    $existingSwa = Get-StaticWebAppGlobal -Name $Context.StaticWebAppName -SubscriptionId $Context.SubscriptionId
 
     $swaOwnerRg = $null
     if ($existingSwa) {
         $swaOwnerRg = Get-ResourceGroupFromResourceId -ResourceId $existingSwa.id
         if (-not $swaOwnerRg) {
-            throw "Static Web App '$($ExecutionContext.StaticWebAppName)' のリソースグループを特定できませんでした。"
+            throw "Static Web App '$($Context.StaticWebAppName)' のリソースグループを特定できませんでした。"
         }
     }
 
@@ -497,24 +497,24 @@ function Resolve-ResourceState {
 
 function New-StaticWebAppResource {
     param(
-        $ExecutionContext,
+        $Context,
         [string]$ResourceGroupName
     )
 
-    Write-Info "Static Web App '$($ExecutionContext.StaticWebAppName)' を作成しています..."
-    az staticwebapp create --name $ExecutionContext.StaticWebAppName --resource-group $ResourceGroupName --sku $ExecutionContext.Sku --subscription $ExecutionContext.SubscriptionId | Out-Null
+    Write-Info "Static Web App '$($Context.StaticWebAppName)' を作成しています..."
+    az staticwebapp create --name $Context.StaticWebAppName --resource-group $ResourceGroupName --sku $Context.Sku --subscription $Context.SubscriptionId | Out-Null
     if ($LASTEXITCODE -ne 0) {
         throw 'Static Web App の作成に失敗しました。'
     }
 
-    $deploymentToken = Get-DeploymentToken -Name $ExecutionContext.StaticWebAppName -ResourceGroup $ResourceGroupName -SubscriptionId $ExecutionContext.SubscriptionId
+    $deploymentToken = Get-DeploymentToken -Name $Context.StaticWebAppName -ResourceGroup $ResourceGroupName -SubscriptionId $Context.SubscriptionId
     Write-Info 'デプロイトークンを取得しました。'
     return $deploymentToken
 }
 
 function Ensure-GitHubSecret {
     param(
-        $ExecutionContext,
+        $Context,
         [string]$DeploymentToken
     )
 
@@ -522,20 +522,20 @@ function Ensure-GitHubSecret {
         return
     }
 
-    Set-GitHubSecret -Repo $ExecutionContext.RepoSlug -SecretValue $DeploymentToken
-    Write-Host "[SUCCESS] GitHub シークレット '$GitHubSecretNameConst' を $($ExecutionContext.RepoSlug) 用に更新しました。" -ForegroundColor Green
+    Set-GitHubSecret -Repo $Context.RepoSlug -SecretValue $DeploymentToken
+    Write-Host "[SUCCESS] GitHub シークレット '$GitHubSecretNameConst' を $($Context.RepoSlug) 用に更新しました。" -ForegroundColor Green
 }
 
 function Ensure-StaticWebApp {
     param(
-        $ExecutionContext,
+        $Context,
         $ResourceState
     )
 
     if (-not $ResourceState.StaticWebApp) {
-        $rgName = Ensure-ResourceGroup -Name $ExecutionContext.ResourceGroupName -Location $ExecutionContext.ResourceGroupLocation -SubscriptionId $ExecutionContext.SubscriptionId
-        $token = New-StaticWebAppResource -ExecutionContext $ExecutionContext -ResourceGroupName $rgName
-        Ensure-GitHubSecret -ExecutionContext $ExecutionContext -DeploymentToken $token
+        $rgName = Ensure-ResourceGroup -Name $Context.ResourceGroupName -Location $Context.ResourceGroupLocation -SubscriptionId $Context.SubscriptionId
+        $token = New-StaticWebAppResource -Context $Context -ResourceGroupName $rgName
+        Ensure-GitHubSecret -Context $Context -DeploymentToken $token
 
         return [PSCustomObject]@{
             ResourceGroupName = $rgName
@@ -543,13 +543,13 @@ function Ensure-StaticWebApp {
         }
     }
 
-    Write-Info "既存の Static Web App '$($ExecutionContext.StaticWebAppName)' が見つかりました。"
-    $reuseResources = Confirm-StaticWebAppReuse -ResourceGroupName $ResourceState.StaticWebAppResourceGroup -StaticWebAppName $ExecutionContext.StaticWebAppName
+    Write-Info "既存の Static Web App '$($Context.StaticWebAppName)' が見つかりました。"
+    $reuseResources = Confirm-StaticWebAppReuse -ResourceGroupName $ResourceState.StaticWebAppResourceGroup -StaticWebAppName $Context.StaticWebAppName
 
     if ($reuseResources) {
         Write-Info "既存の Static Web App を再利用します（リソースグループ: $($ResourceState.StaticWebAppResourceGroup)）。"
-        $token = Get-DeploymentToken -Name $ExecutionContext.StaticWebAppName -ResourceGroup $ResourceState.StaticWebAppResourceGroup -SubscriptionId $ExecutionContext.SubscriptionId
-        Ensure-GitHubSecret -ExecutionContext $ExecutionContext -DeploymentToken $token
+        $token = Get-DeploymentToken -Name $Context.StaticWebAppName -ResourceGroup $ResourceState.StaticWebAppResourceGroup -SubscriptionId $Context.SubscriptionId
+        Ensure-GitHubSecret -Context $Context -DeploymentToken $token
         return [PSCustomObject]@{
             ResourceGroupName = $ResourceState.StaticWebAppResourceGroup
             DeploymentToken   = $token
@@ -557,11 +557,11 @@ function Ensure-StaticWebApp {
     }
 
     Write-Info '既存リソースを削除して再作成します。'
-    Remove-StaticWebAppWithConfirmation -Name $ExecutionContext.StaticWebAppName -ResourceGroup $ResourceState.StaticWebAppResourceGroup -SubscriptionId $ExecutionContext.SubscriptionId
+    Remove-StaticWebAppWithConfirmation -Name $Context.StaticWebAppName -ResourceGroup $ResourceState.StaticWebAppResourceGroup -SubscriptionId $Context.SubscriptionId
 
-    $rgName = Ensure-ResourceGroup -Name $ExecutionContext.ResourceGroupName -Location $ExecutionContext.ResourceGroupLocation -SubscriptionId $ExecutionContext.SubscriptionId
-    $token = New-StaticWebAppResource -ExecutionContext $ExecutionContext -ResourceGroupName $rgName
-    Ensure-GitHubSecret -ExecutionContext $ExecutionContext -DeploymentToken $token
+    $rgName = Ensure-ResourceGroup -Name $Context.ResourceGroupName -Location $Context.ResourceGroupLocation -SubscriptionId $Context.SubscriptionId
+    $token = New-StaticWebAppResource -Context $Context -ResourceGroupName $rgName
+    Ensure-GitHubSecret -Context $Context -DeploymentToken $token
 
     return [PSCustomObject]@{
         ResourceGroupName = $rgName
