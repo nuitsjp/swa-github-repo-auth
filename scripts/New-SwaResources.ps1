@@ -18,7 +18,7 @@ Static Web App 名を上書きします（デフォルト: stapp-<repo>-prod）�
 リソースグループのリージョン（デフォルト: japaneast）。
 
 .PARAMETER Sku
-Static Web App の SKU（Free、Standard、Dedicated）。
+Static Web App の SKU（Free、Standard）。
 
 .PARAMETER ClientId
 GitHub OAuth App Client ID。未指定時は後段で対話プロンプトが表示されます。
@@ -41,7 +41,7 @@ param(
     [string]$ResourceGroupName,
     [string]$Name,
     [string]$ResourceGroupLocation = 'japaneast',
-    [ValidateSet('Free', 'Standard', 'Dedicated')]
+    [ValidateSet('Free', 'Standard')]
     [string]$Sku = 'Standard',
     [string]$ClientId,
     [string]$ClientSecret

@@ -61,7 +61,7 @@ pwsh ./scripts/New-SwaResources.ps1 \
 - `ResourceGroupName`: リソースグループ名（デフォルト: `rg-<repo>-prod`）
 - `Name`: Static Web App 名（デフォルト: `stapp-<repo>-prod`）  
 - `ResourceGroupLocation`: リソースグループのリージョン（デフォルト: `japaneast`）
-- `Sku`: Static Web App の SKU（Free/Standard/Dedicated、デフォルト: Standard）
+- `Sku`: Static Web App の SKU（Free/Standard、デフォルト: Standard）
 - `ClientId`/`ClientSecret`: GitHub OAuth App の認証情報（未指定時は対話プロンプトで入力）
 
 ### 3. GitHub OAuth App の作成

@@ -23,7 +23,7 @@
 | `ResourceGroupName` | string | No | `rg-<repo>-prod` | リソースグループ名 |
 | `Name` | string | No | `stapp-<repo>-prod` | Static Web App 名 |
 | `ResourceGroupLocation` | string | No | `japaneast` | リソースグループのリージョン |
-| `Sku` | string | No | `Standard` | Static Web App の SKU (Free/Standard/Dedicated) |
+| `Sku` | string | No | `Standard` | Static Web App の SKU (Free/Standard) |
 | `ClientId` | string | No | - | GitHub OAuth App Client ID |
 | `ClientSecret` | string | No | - | GitHub OAuth App Client Secret |
 
