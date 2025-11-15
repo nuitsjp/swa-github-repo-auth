@@ -53,21 +53,33 @@ $OutputEncoding = [System.Text.Encoding]::UTF8
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 
 function Main {
-    # ============================================================
-    # メイン処理
-    # ============================================================
     Set-Variable -Name GitHubSecretNameConst -Value 'AZURE_STATIC_WEB_APPS_API_TOKEN' -Option Constant
 
-    $provisionContext = Initialize-ExecutionContext -RequestedResourceGroupName $ResourceGroupName -RequestedStaticWebAppName $Name -ResourceGroupLocation $ResourceGroupLocation -Sku $Sku
+    $provisionContext = Initialize-ExecutionContext `
+        -RequestedResourceGroupName $ResourceGroupName `
+        -RequestedStaticWebAppName $Name `
+        -ResourceGroupLocation $ResourceGroupLocation `
+        -Sku $Sku
+
     $resourceState = Resolve-ResourceState -Context $provisionContext
     $provisionResult = Ensure-StaticWebApp -Context $provisionContext -ResourceState $resourceState
 
     $activeResourceGroup = $provisionResult.ResourceGroupName
 
-    Show-GitHubOAuthInstructions -Name $provisionContext.StaticWebAppName -ResourceGroup $activeResourceGroup -SubscriptionId $provisionContext.SubscriptionId
+    Show-GitHubOAuthInstructions `
+        -Name $provisionContext.StaticWebAppName `
+        -ResourceGroup $activeResourceGroup `
+        -SubscriptionId $provisionContext.SubscriptionId
 
     $credentials = Resolve-ClientCredentials -ClientId $ClientId -ClientSecret $ClientSecret
-    Set-AppSettings -Name $provisionContext.StaticWebAppName -ResourceGroup $activeResourceGroup -SubscriptionId $provisionContext.SubscriptionId -ClientId $credentials.ClientId -ClientSecret $credentials.ClientSecret -RepoOwner $provisionContext.RepoOwner -RepoName $provisionContext.RepoName
+    Set-AppSettings `
+        -Name $provisionContext.StaticWebAppName `
+        -ResourceGroup $activeResourceGroup `
+        -SubscriptionId $provisionContext.SubscriptionId `
+        -ClientId $credentials.ClientId `
+        -ClientSecret $credentials.ClientSecret `
+        -RepoOwner $provisionContext.RepoOwner `
+        -RepoName $provisionContext.RepoName
 }
 
 
@@ -434,13 +446,20 @@ function Set-AppSettings {
     )
 
     Write-Info 'アプリ設定を更新しています...'
-    az staticwebapp appsettings set --name $Name -g $ResourceGroup --subscription $SubscriptionId --setting-names $settingNames | Out-Null
+    az staticwebapp appsettings set --name $Name -g $ResourceGroup --subscription $SubscriptionId --setting-names $settingNames --only-show-errors | Out-Null
 
     if ($LASTEXITCODE -ne 0) {
         throw 'アプリ設定の更新に失敗しました。'
     }
 
-    Write-Host "[SUCCESS] アプリ設定を更新しました。必要に応じて 'az staticwebapp appsettings list -n $Name -g $ResourceGroup' で確認してください。" -ForegroundColor Green
+    $hostname = az staticwebapp show --name $Name -g $ResourceGroup --subscription $SubscriptionId --query 'defaultHostname' -o tsv 2>$null
+    if ($LASTEXITCODE -eq 0 -and $hostname) {
+        $swaUrl = "https://$($hostname.TrimEnd('/'))/"
+        Write-Host "[SUCCESS] アプリ設定を更新しました。SWA: $swaUrl" -ForegroundColor Green
+    }
+    else {
+        Write-Host "[SUCCESS] アプリ設定を更新しました。必要に応じて 'az staticwebapp appsettings list -n $Name -g $ResourceGroup' で確認してください。" -ForegroundColor Green
+    }
 }
 
 function Initialize-ExecutionContext {
