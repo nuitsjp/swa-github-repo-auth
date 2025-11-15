@@ -173,36 +173,44 @@ function Convert-SecureStringToPlainText {
     }
 }
 
+function Resolve-ParameterOrPrompt {
+    param(
+        [string]$Value,
+        [string]$PromptMessage,
+        [switch]$AsSecureString
+    )
+
+    if ($Value) {
+        return $Value.Trim()
+    }
+
+    if ($AsSecureString) {
+        $secureInput = Read-Host $PromptMessage -AsSecureString
+        $plain = Convert-SecureStringToPlainText -SecureString $secureInput
+        if (-not $plain) {
+            throw "$PromptMessage が必要です。"
+        }
+        return $plain
+    }
+    else {
+        $input = Read-Host $PromptMessage
+        if (-not $input) {
+            throw "$PromptMessage が必要です。"
+        }
+        return $input.Trim()
+    }
+}
+
 function Resolve-ClientCredentials {
     param(
         [string]$ClientId,
         [string]$ClientSecret
     )
 
-    $resolvedClientId = if ($ClientId) {
-        $ClientId.Trim()
-    }
-    else {
-        $input = Read-Host 'GitHub OAuth App Client ID'
-        if (-not $input) {
-            throw 'GitHub OAuth App Client ID が必要です。'
-        }
-        $input.Trim()
-    }
+    $resolvedClientId = Resolve-ParameterOrPrompt -Value $ClientId -PromptMessage 'GitHub OAuth App Client ID'
+    $resolvedClientSecret = Resolve-ParameterOrPrompt -Value $ClientSecret -PromptMessage 'GitHub OAuth App Client Secret' -AsSecureString
 
-    $resolvedClientSecret = if ($ClientSecret) {
-        $ClientSecret
-    }
-    else {
-        $secureInput = Read-Host 'GitHub OAuth App Client Secret' -AsSecureString
-        $plain = Convert-SecureStringToPlainText -SecureString $secureInput
-        if (-not $plain) {
-            throw 'GitHub OAuth App Client Secret が必要です。'
-        }
-        $plain
-    }
-
-    return [pscustomobject]@{
+    return [PSCustomObject]@{
         ClientId     = $resolvedClientId
         ClientSecret = $resolvedClientSecret
     }
@@ -246,28 +254,38 @@ if (-not $Name) {
 }
 
 $targetGitHubRepo = "$repoOwner/$repoName"
-$resolvedCredentials = $null
-$shouldPromptAfterInstructions = (-not $ClientId) -or (-not $ClientSecret)
-$swaCreated = $false
 
+# リソースグループの処理
 $resourceGroupExists = Get-ResourceGroup -Name $ResourceGroupName
-if ($Force -and $resourceGroupExists) {
-    Write-Info "Force オプションが指定されたため、リソースグループ '$ResourceGroupName' を削除します。"
-    az group delete --name $ResourceGroupName --yes | Out-Null
-    $resourceGroupExists = $false
+if ($resourceGroupExists) {
+    if ($Force) {
+        Write-Info "Force オプションが指定されたため、リソースグループ '$ResourceGroupName' を削除します。"
+        az group delete --name $ResourceGroupName --yes | Out-Null
+        $resourceGroupExists = $false
+    }
+    else {
+        Write-Info "リソースグループ '$ResourceGroupName' は既に存在します。"
+    }
+}
+else {
 }
 
 if (-not $resourceGroupExists) {
     Write-Info "リソースグループ '$ResourceGroupName' を '$ResourceGroupLocation' に作成しています..."
     az group create --name $ResourceGroupName --location $ResourceGroupLocation | Out-Null
 }
-else {
-    Write-Info "リソースグループ '$ResourceGroupName' は既に存在します。"
-}
 
-$existingApp = $null
-if (-not $Force) {
-    $existingApp = Get-StaticWebApp -Name $Name -ResourceGroup $ResourceGroupName
+# Static Web App の処理
+$existingApp = Get-StaticWebApp -Name $Name -ResourceGroup $ResourceGroupName
+if ($existingApp) {
+    if ($Force) {
+        Write-Info "Force オプションが指定されたため、Static Web App '$Name' を削除します。"
+        az staticwebapp delete --name $Name --resource-group $ResourceGroupName --yes | Out-Null
+        $existingApp = $null
+    }
+    else {
+        Write-Info "Static Web App '$Name' は既に存在します。再作成する場合は --Force を指定してください。"
+    }
 }
 
 if (-not $existingApp) {
@@ -286,26 +304,13 @@ if (-not $existingApp) {
 
     Set-GitHubSecret -Repo $targetGitHubRepo -SecretValue $deploymentToken
     Write-Host "[SUCCESS] GitHub シークレット '$GitHubSecretNameConst' を $targetGitHubRepo 用に更新しました。" -ForegroundColor Green
-    
-    $swaCreated = $true
-}
-else {
-    Write-Info "Static Web App '$Name' は既に存在します。再作成する場合は --Force を指定してください。"
 }
 
-if ($swaCreated -or $shouldPromptAfterInstructions) {
-    Show-GitHubOAuthInstructions -Name $Name -ResourceGroup $ResourceGroupName
-    
-    if ($shouldPromptAfterInstructions) {
-        Write-Info 'GitHub OAuth App の作成手順を完了したら、続けて Client ID / Secret を入力してください。'
-        $resolvedCredentials = Resolve-ClientCredentials -ClientId $ClientId -ClientSecret $ClientSecret
-    }
-    else {
-        Write-Info 'Static Web App が新規作成されました。上記 URL で GitHub OAuth App の設定を更新してください。'
-        $resolvedCredentials = Resolve-ClientCredentials -ClientId $ClientId -ClientSecret $ClientSecret
-    }
-}
-else {
-    $resolvedCredentials = Resolve-ClientCredentials -ClientId $ClientId -ClientSecret $ClientSecret
-}
-Set-AppSettings -Name $Name -ResourceGroup $ResourceGroupName -ClientId $resolvedCredentials.ClientId -ClientSecret $resolvedCredentials.ClientSecret -RepoOwner $repoOwner -RepoName $repoName
+# OAuth 手順を表示
+Show-GitHubOAuthInstructions -Name $Name -ResourceGroup $ResourceGroupName
+
+$resolvedClientId = Resolve-ParameterOrPrompt -Value $ClientId -PromptMessage 'GitHub OAuth App Client ID'
+$resolvedClientSecret = Resolve-ParameterOrPrompt -Value $ClientSecret -PromptMessage 'GitHub OAuth App Client Secret' -AsSecureString
+
+# アプリ設定の更新
+Set-AppSettings -Name $Name -ResourceGroup $ResourceGroupName -ClientId $resolvedClientId -ClientSecret $resolvedClientSecret -RepoOwner $repoOwner -RepoName $repoName
