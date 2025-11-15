@@ -2,17 +2,16 @@
 
 <#
 .SYNOPSIS
-ローカル依存関係を初期化し、Azure Static Web App をプロビジョニングしてデプロイトークンを取得します。
+Azure Static Web App のプロビジョニングと GitHub 関連アプリ設定の更新を 1 本で行います。
 
 .DESCRIPTION
-Azure Static Web App リソースを作成または再作成し、デプロイトークンを取得します。ローカル依存関係や
-CLI 拡張のインストールは `scripts/Prepare-LocalEnvironment.ps1` に分離されているため、このスクリプトを
-実行する前に準備を済ませてください。Static Web App プロビジョニング後は、取得したデプロイトークンを
-GitHub CLI (`gh secret set`) でカレントリポジトリ（git remote origin）の `AZURE_STATIC_WEB_APPS_API_TOKEN`
-シークレットに必ず登録し、同梱の `.github/workflows/deploy-azure-static-web-apps.yml` が利用できる状態にします。
+リポジトリ情報を git remote から検出し、必要なリソースグループおよび Static Web App を作成します。
+新規作成時にはデプロイトークンを取得して GitHub シークレット (AZURE_STATIC_WEB_APPS_API_TOKEN) を登録し、
+続けて GitHub OAuth App の Client ID / Secret、およびリポジトリ情報を Azure Static Web App のアプリ設定に
+反映します。既存のリソースがある場合は検出して再利用し、差分がなければ作成ステップをスキップします。
 
 .PARAMETER ResourceGroupName
-デフォルトのリソースグループ名を上書きします（デフォルト: rg-<repo>-prod）。
+リソースグループ名を上書きします（デフォルト: rg-<repo>-prod）。
 
 .PARAMETER Name
 Static Web App 名を上書きします（デフォルト: stapp-<repo>-prod）。
@@ -24,21 +23,35 @@ Static Web App 名を上書きします（デフォルト: stapp-<repo>-prod）�
 Static Web App の SKU（Free、Standard、Dedicated）。
 
 .PARAMETER Force
-既存のリソースグループ（および配下の Static Web App）を削除してから再作成します。
+既存リソースグループを削除して再作成します。
+
+.PARAMETER ClientId
+GitHub OAuth App Client ID。未指定時は後段で対話プロンプトが表示されます。
+
+.PARAMETER ClientSecret
+GitHub OAuth App Client Secret。未指定時は後段で安全な対話プロンプトが表示されます。
 
 .EXAMPLE
-pwsh ./scripts/New-SwaResources.ps1
+pwsh ./scripts/New-SwaResources.ps1 --client-id <id> --client-secret <secret>
 
-必要に応じてリポジトリを準備し、Static Web App を作成し、デプロイトークンを GitHub シークレットに登録します。
+Static Web App を作成し、GitHub シークレットとアプリ設定をまとめて更新します。
+
+.EXAMPLE
+pwsh ./scripts/New-SwaResources.ps1 --force --client-id <id> --client-secret <secret>
+
+既存のリソースグループや Static Web App を削除して再作成します。
 #>
 [CmdletBinding()]
 param(
     [string]$ResourceGroupName,
     [string]$Name,
+    [Parameter(Mandatory = $true)]
     [string]$ResourceGroupLocation = 'japaneast',
-    [ValidateSet('Free','Standard','Dedicated')]
+    [ValidateSet('Free', 'Standard', 'Dedicated')]
     [string]$Sku = 'Standard',
-    [switch]$Force
+    [switch]$Force,
+    [string]$ClientId,
+    [string]$ClientSecret
 )
 
 Set-StrictMode -Version Latest
@@ -46,14 +59,11 @@ $ErrorActionPreference = 'Stop'
 
 Set-Variable -Name GitHubSecretNameConst -Value 'AZURE_STATIC_WEB_APPS_API_TOKEN' -Option Constant
 
-# 情報メッセージをシアン色で出力するヘルパー関数
 function Write-Info {
     param([string]$Message)
     Write-Host "[INFO] $Message" -ForegroundColor Cyan
 }
 
-
-# リポジトリ名および GitHub スラッグを解決する関数
 function Resolve-RepoContext {
     $remoteUrl = $(git remote get-url origin 2>$null)
     if (-not $remoteUrl) {
@@ -73,7 +83,7 @@ function Resolve-RepoContext {
 
     return [pscustomobject]@{
         GitHubOwner = $matches.owner
-        GitHubRepo = $repoName
+        GitHubRepo  = $repoName
     }
 }
 
@@ -86,10 +96,8 @@ function Get-ResourceGroup {
     return $false
 }
 
-
-# 既存の Static Web App を取得する関数（存在しない場合は $null を返す）
 function Get-StaticWebApp {
-    param([string]$Name,[string]$ResourceGroup)
+    param([string]$Name, [string]$ResourceGroup)
     $output = az staticwebapp show --name $Name --resource-group $ResourceGroup 2>$null
     if ($LASTEXITCODE -eq 0 -and $output) {
         return $output | ConvertFrom-Json
@@ -97,7 +105,6 @@ function Get-StaticWebApp {
     return $null
 }
 
-# デプロイメントトークンを取得する関数
 function Get-DeploymentToken {
     param(
         [string]$Name,
@@ -112,7 +119,6 @@ function Get-DeploymentToken {
     return $token.Trim()
 }
 
-# Static Web App のホスト名を取得し、GitHub OAuth 設定用の URL を案内する
 function Show-GitHubOAuthInstructions {
     param(
         [string]$Name,
@@ -134,10 +140,9 @@ function Show-GitHubOAuthInstructions {
     Write-Host "  次の手順:" -ForegroundColor Yellow
     Write-Host '    1. GitHub > Settings > Developer settings > OAuth Apps > New OAuth App を開く'
     Write-Host '    2. 上記 URL を入力してアプリを作成し、Client ID/Secret を保管'
-    Write-Host '    3. scripts/Set-SwaAppSettings.ps1 で GITHUB_CLIENT_ID / GITHUB_CLIENT_SECRET などを設定'
+    Write-Host '    3. scripts/New-SwaResources.ps1 で GITHUB_CLIENT_ID / GITHUB_CLIENT_SECRET などを設定'
 }
 
-# GitHub リポジトリのシークレットを設定する関数（GitHub CLI を使用）
 function Set-GitHubSecret {
     param(
         [string]$Repo,
@@ -152,26 +157,99 @@ function Set-GitHubSecret {
     gh secret set $GitHubSecretNameConst --repo $Repo --body $SecretValue | Out-Null
 }
 
-# リポジトリ情報の解決（リソース名や GitHub リモートに使用）
+function Convert-SecureStringToPlainText {
+    param([System.Security.SecureString]$SecureString)
+
+    if (-not $SecureString) {
+        throw '空の値が入力されました。'
+    }
+
+    $bstr = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecureString)
+    try {
+        return [System.Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr)
+    }
+    finally {
+        [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
+    }
+}
+
+function Resolve-ClientCredentials {
+    param(
+        [string]$ClientId,
+        [string]$ClientSecret
+    )
+
+    $resolvedClientId = if ($ClientId) {
+        $ClientId.Trim()
+    }
+    else {
+        $input = Read-Host 'GitHub OAuth App Client ID'
+        if (-not $input) {
+            throw 'GitHub OAuth App Client ID が必要です。'
+        }
+        $input.Trim()
+    }
+
+    $resolvedClientSecret = if ($ClientSecret) {
+        $ClientSecret
+    }
+    else {
+        $secureInput = Read-Host 'GitHub OAuth App Client Secret' -AsSecureString
+        $plain = Convert-SecureStringToPlainText -SecureString $secureInput
+        if (-not $plain) {
+            throw 'GitHub OAuth App Client Secret が必要です。'
+        }
+        $plain
+    }
+
+    return [pscustomobject]@{
+        ClientId     = $resolvedClientId
+        ClientSecret = $resolvedClientSecret
+    }
+}
+
+function Set-AppSettings {
+    param(
+        [string]$Name,
+        [string]$ResourceGroup,
+        [string]$ClientId,
+        [string]$ClientSecret,
+        [string]$RepoOwner,
+        [string]$RepoName
+    )
+
+    $settingNames = @(
+        "GITHUB_CLIENT_ID=$ClientId"
+        "GITHUB_CLIENT_SECRET=$ClientSecret"
+        "GITHUB_REPO_OWNER=$RepoOwner"
+        "GITHUB_REPO_NAME=$RepoName"
+    )
+
+    Write-Info 'アプリ設定を更新しています...'
+    az staticwebapp appsettings set --name $Name -g $ResourceGroup --setting-names @settingNames | Out-Null
+
+    if ($LASTEXITCODE -ne 0) {
+        throw 'アプリ設定の更新に失敗しました。'
+    }
+
+    Write-Host "[SUCCESS] アプリ設定を更新しました。必要に応じて 'az staticwebapp appsettings list -n $Name -g $ResourceGroup' で確認してください。" -ForegroundColor Green
+}
+
 $repoContext = Resolve-RepoContext
 $repoName = $repoContext.GitHubRepo
-
-# パラメータが未指定の場合はリポジトリ名に基づいてデフォルト値を設定
+$repoOwner = $repoContext.GitHubOwner
 if (-not $ResourceGroupName) {
     $ResourceGroupName = "rg-$repoName-prod"
 }
-
 if (-not $Name) {
     $Name = "stapp-$repoName-prod"
 }
 
-if (-not $ResourceGroupLocation) {
-    throw 'リソースグループのリージョンが指定されていません。'
-}
+$targetGitHubRepo = "$repoOwner/$repoName"
+$resolvedCredentials = $null
+$shouldPromptAfterInstructions = (-not $ClientId) -or (-not $ClientSecret)
+$swaCreated = $false
 
-$targetGitHubRepo = "$($repoContext.GitHubOwner)/$($repoContext.GitHubRepo)"
-
-# リソースグループの作成または確認
 $resourceGroupExists = Get-ResourceGroup -Name $ResourceGroupName
 if ($Force -and $resourceGroupExists) {
     Write-Info "Force オプションが指定されたため、リソースグループ '$ResourceGroupName' を削除します。"
@@ -182,7 +260,8 @@ if ($Force -and $resourceGroupExists) {
 if (-not $resourceGroupExists) {
     Write-Info "リソースグループ '$ResourceGroupName' を '$ResourceGroupLocation' に作成しています..."
     az group create --name $ResourceGroupName --location $ResourceGroupLocation | Out-Null
-} else {
+}
+else {
     Write-Info "リソースグループ '$ResourceGroupName' は既に存在します。"
 }
 
@@ -191,13 +270,12 @@ if (-not $Force) {
     $existingApp = Get-StaticWebApp -Name $Name -ResourceGroup $ResourceGroupName
 }
 
-# Static Web App の作成（存在しない場合のみ）
 if (-not $existingApp) {
     $createArgs = @(
-        'staticwebapp','create',
-        '--name',$Name,
-        '--resource-group',$ResourceGroupName,
-        '--sku',$Sku
+        'staticwebapp', 'create',
+        '--name', $Name,
+        '--resource-group', $ResourceGroupName,
+        '--sku', $Sku
     )
 
     Write-Info "Static Web App '$Name' を作成しています..."
@@ -208,11 +286,26 @@ if (-not $existingApp) {
 
     Set-GitHubSecret -Repo $targetGitHubRepo -SecretValue $deploymentToken
     Write-Host "[SUCCESS] GitHub シークレット '$GitHubSecretNameConst' を $targetGitHubRepo 用に更新しました。" -ForegroundColor Green
-
-    Show-GitHubOAuthInstructions -Name $Name -ResourceGroup $ResourceGroupName
+    
+    $swaCreated = $true
 }
 else {
     Write-Info "Static Web App '$Name' は既に存在します。再作成する場合は --Force を指定してください。"
-
-    Show-GitHubOAuthInstructions -Name $Name -ResourceGroup $ResourceGroupName
 }
+
+if ($swaCreated -or $shouldPromptAfterInstructions) {
+    Show-GitHubOAuthInstructions -Name $Name -ResourceGroup $ResourceGroupName
+    
+    if ($shouldPromptAfterInstructions) {
+        Write-Info 'GitHub OAuth App の作成手順を完了したら、続けて Client ID / Secret を入力してください。'
+        $resolvedCredentials = Resolve-ClientCredentials -ClientId $ClientId -ClientSecret $ClientSecret
+    }
+    else {
+        Write-Info 'Static Web App が新規作成されました。上記 URL で GitHub OAuth App の設定を更新してください。'
+        $resolvedCredentials = Resolve-ClientCredentials -ClientId $ClientId -ClientSecret $ClientSecret
+    }
+}
+else {
+    $resolvedCredentials = Resolve-ClientCredentials -ClientId $ClientId -ClientSecret $ClientSecret
+}
+Set-AppSettings -Name $Name -ResourceGroup $ResourceGroupName -ClientId $resolvedCredentials.ClientId -ClientSecret $resolvedCredentials.ClientSecret -RepoOwner $repoOwner -RepoName $repoName

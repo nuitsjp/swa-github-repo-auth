@@ -57,17 +57,17 @@ pwsh ./scripts/New-SwaResources.ps1
 
 ### 4. 環境変数の設定
 
-- `scripts/Set-SwaAppSettings.ps1` が `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, `GITHUB_REPO_OWNER`, `GITHUB_REPO_NAME` を Production もしくは指定環境に登録します。既存値と差分がない場合は更新をスキップします（`--Force` オプションは廃止しました）。リポジトリの所有者・名称は `git remote origin` から自動検出します。
+- `scripts/New-SwaResources.ps1` はリソース作成に加えて `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, `GITHUB_REPO_OWNER`, `GITHUB_REPO_NAME` のアプリ設定更新にも対応しました。既存の Static Web App が見つかった場合はそのまま再利用し、差分がない作成ステップは自動的にスキップします。リポジトリの所有者・名称は `git remote origin` から自動検出し、既存値と差分がない場合は Azure 側の更新をスキップします。
 
 ```bash
-pwsh ./scripts/Set-SwaAppSettings.ps1 \
+pwsh ./scripts/New-SwaResources.ps1 \
   --resource-group swa-docs-rg \
   --name swa-github-docs \
   --client-id <GitHub OAuth Client ID> \
   --client-secret <GitHub OAuth Client Secret>
 ```
 
-- 未指定の引数は対話的に入力できます。値は Azure App Settings に保存され、Git には含めません。
+- 未指定の Client ID / Secret は、SWA 作成と GitHub OAuth App 手順の案内を表示したあとで対話プロンプトが表示されます。値は Azure App Settings に保存され、Git には含めません。
 
 ### 5. 動作確認
 
