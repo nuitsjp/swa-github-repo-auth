@@ -6,9 +6,10 @@ Azure Static Web App のプロビジョニングと GitHub 関連アプリ設定
 
 .DESCRIPTION
 リポジトリ情報を git remote から検出し、必要なリソースグループおよび Static Web App を作成します。
+事前にグローバルでRGとSWAの存在を確認し、既存リソースがある場合は対話的に再利用または再作成を選択します。
 新規作成時にはデプロイトークンを取得して GitHub シークレット (AZURE_STATIC_WEB_APPS_API_TOKEN) を登録し、
 続けて GitHub OAuth App の Client ID / Secret、およびリポジトリ情報を Azure Static Web App のアプリ設定に
-反映します。既存のリソースがある場合は検出して再利用し、差分がなければ作成ステップをスキップします。
+反映します。
 
 .PARAMETER ResourceGroupName
 リソースグループ名を上書きします（デフォルト: rg-<repo>-prod）。
@@ -22,9 +23,6 @@ Static Web App 名を上書きします（デフォルト: stapp-<repo>-prod）�
 .PARAMETER Sku
 Static Web App の SKU（Free、Standard、Dedicated）。
 
-.PARAMETER Force
-既存リソースグループを削除して再作成します。
-
 .PARAMETER ClientId
 GitHub OAuth App Client ID。未指定時は後段で対話プロンプトが表示されます。
 
@@ -37,9 +35,9 @@ pwsh ./scripts/New-SwaResources.ps1 --client-id <id> --client-secret <secret>
 Static Web App を作成し、GitHub シークレットとアプリ設定をまとめて更新します。
 
 .EXAMPLE
-pwsh ./scripts/New-SwaResources.ps1 --force --client-id <id> --client-secret <secret>
+pwsh ./scripts/New-SwaResources.ps1
 
-既存のリソースグループや Static Web App を削除して再作成します。
+既存リソースがある場合、再利用または再作成を対話的に選択します。
 #>
 [CmdletBinding()]
 param(
@@ -49,7 +47,6 @@ param(
     [string]$ResourceGroupLocation = 'japaneast',
     [ValidateSet('Free', 'Standard', 'Dedicated')]
     [string]$Sku = 'Standard',
-    [switch]$Force,
     [string]$ClientId,
     [string]$ClientSecret
 )
@@ -96,12 +93,37 @@ function Get-ResourceGroup {
     return $false
 }
 
-function Get-StaticWebApp {
-    param([string]$Name, [string]$ResourceGroup)
-    $output = az staticwebapp show --name $Name --resource-group $ResourceGroup 2>$null
-    if ($LASTEXITCODE -eq 0 -and $output) {
-        return $output | ConvertFrom-Json
+function Get-StaticWebAppGlobal {
+    param([string]$Name)
+    
+    Write-Info "Static Web App '$Name' のグローバル検索を実行しています..."
+    $output = az staticwebapp list --query "[?name=='$Name']" 2>$null
+    
+    if ($LASTEXITCODE -ne 0) {
+        throw 'Static Web App のリスト取得に失敗しました。Azure CLI が正しく設定されているか確認してください。'
     }
+    
+    if (-not $output) {
+        return $null
+    }
+    
+    $apps = $output | ConvertFrom-Json
+    if ($apps.Count -eq 0) {
+        return $null
+    }
+    
+    # 複数見つかった場合は最初の1つを返す（通常は名前がユニークなので1つのはず）
+    return $apps[0]
+}
+
+function Get-ResourceGroupFromResourceId {
+    param([string]$ResourceId)
+    
+    # Resource ID format: /subscriptions/{sub}/resourceGroups/{rg}/providers/...
+    if ($ResourceId -match '/resourceGroups/([^/]+)/') {
+        return $matches[1]
+    }
+    
     return $null
 }
 
@@ -143,7 +165,41 @@ function Show-GitHubOAuthInstructions {
     Write-Host '    3. scripts/New-SwaResources.ps1 で GITHUB_CLIENT_ID / GITHUB_CLIENT_SECRET などを設定'
 }
 
-function Set-GitHubSecret {
+function Confirm-ReuseResources {
+    param([string]$ResourceGroupName, [string]$StaticWebAppName)
+    
+    Write-Host "`n既存の Static Web App が見つかりました:" -ForegroundColor Yellow
+    Write-Host "  Static Web App: $StaticWebAppName"
+    Write-Host "  所属リソースグループ: $ResourceGroupName"
+    Write-Host "`nこの Static Web App を再利用しますか?" -ForegroundColor Yellow
+    Write-Host "  [Y] 再利用 (既存のまま設定のみ更新)"
+    Write-Host "  [N] 再作成 (既存SWAを削除して対象Resource Groupで再作成)"
+    
+    $response = Read-Host "選択してください [Y/N]"
+    
+    return $response -match '^[Yy]'
+}
+
+function Remove-StaticWebAppWithConfirmation {
+    param([string]$Name, [string]$ResourceGroup)
+    
+    Write-Warning "Static Web App '$Name' を削除します。この操作は取り消せません。"
+    Write-Host "削除を続行しますか? (yes と入力してください): " -NoNewline
+    $confirmation = Read-Host
+    
+    if ($confirmation -ne 'yes') {
+        throw '削除がキャンセルされました。'
+    }
+    
+    Write-Info "Static Web App '$Name' を削除しています..."
+    az staticwebapp delete --name $Name --resource-group $ResourceGroup --yes | Out-Null
+    
+    if ($LASTEXITCODE -ne 0) {
+        throw 'Static Web App の削除に失敗しました。'
+    }
+    
+    Write-Info 'Static Web App を削除しました。'
+}
     param(
         [string]$Repo,
         [string]$SecretValue
@@ -255,56 +311,97 @@ if (-not $Name) {
 
 $targetGitHubRepo = "$repoOwner/$repoName"
 
-# リソースグループの処理
-$resourceGroupExists = Get-ResourceGroup -Name $ResourceGroupName
-if ($resourceGroupExists) {
-    if ($Force) {
-        Write-Info "Force オプションが指定されたため、リソースグループ '$ResourceGroupName' を削除します。"
-        az group delete --name $ResourceGroupName --yes | Out-Null
-        $resourceGroupExists = $false
-    }
-    else {
-        Write-Info "リソースグループ '$ResourceGroupName' は既に存在します。"
-    }
-}
-else {
-}
+# ========================================
+# 事前チェック: RGとSWAの存在確認
+# ========================================
 
-if (-not $resourceGroupExists) {
-    Write-Info "リソースグループ '$ResourceGroupName' を '$ResourceGroupLocation' に作成しています..."
-    az group create --name $ResourceGroupName --location $ResourceGroupLocation | Out-Null
-}
+Write-Info "リソースの存在確認を実行しています..."
 
-# Static Web App の処理
-$existingApp = Get-StaticWebApp -Name $Name -ResourceGroup $ResourceGroupName
-if ($existingApp) {
-    if ($Force) {
-        Write-Info "Force オプションが指定されたため、Static Web App '$Name' を削除します。"
-        az staticwebapp delete --name $Name --resource-group $ResourceGroupName --yes | Out-Null
-        $existingApp = $null
-    }
-    else {
-        Write-Info "Static Web App '$Name' は既に存在します。再作成する場合は --Force を指定してください。"
+# 対象RGの存在確認
+$targetRgExists = Get-ResourceGroup -Name $ResourceGroupName
+
+# SWAのグローバル検索
+$existingSwa = Get-StaticWebAppGlobal -Name $Name
+
+# SWA所属RGの特定
+$swaOwnerRg = $null
+if ($existingSwa) {
+    $swaOwnerRg = Get-ResourceGroupFromResourceId -ResourceId $existingSwa.id
+    if (-not $swaOwnerRg) {
+        throw "Static Web App '$Name' のリソースグループを特定できませんでした。"
     }
 }
 
-if (-not $existingApp) {
-    $createArgs = @(
-        'staticwebapp', 'create',
-        '--name', $Name,
-        '--resource-group', $ResourceGroupName,
-        '--sku', $Sku
-    )
+# ========================================
+# 判定と分岐処理
+# ========================================
 
+# ガード条件: SWA存在チェック
+if (-not $existingSwa) {
+    # SWA不在 → 新規作成
+    Write-Info "新規リソースを作成します。"
+    
+    if (-not $targetRgExists) {
+        Write-Info "リソースグループ '$ResourceGroupName' を '$ResourceGroupLocation' に作成しています..."
+        az group create --name $ResourceGroupName --location $ResourceGroupLocation | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            throw 'リソースグループの作成に失敗しました。'
+        }
+    }
+    
     Write-Info "Static Web App '$Name' を作成しています..."
-    az @createArgs | Out-Null
-
+    az staticwebapp create --name $Name --resource-group $ResourceGroupName --sku $Sku | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        throw 'Static Web App の作成に失敗しました。'
+    }
+    
     $deploymentToken = Get-DeploymentToken -Name $Name -ResourceGroup $ResourceGroupName
     Write-Info 'デプロイトークンを取得しました。'
-
+    
     Set-GitHubSecret -Repo $targetGitHubRepo -SecretValue $deploymentToken
     Write-Host "[SUCCESS] GitHub シークレット '$GitHubSecretNameConst' を $targetGitHubRepo 用に更新しました。" -ForegroundColor Green
 }
+else {
+    # SWA存在 → ユーザーに確認
+    Write-Info "既存の Static Web App '$Name' が見つかりました。"
+    $reuseResources = Confirm-ReuseResources -ResourceGroupName $swaOwnerRg -StaticWebAppName $Name
+    
+    if (-not $reuseResources) {
+        # 再作成: 既存SWA削除 → 必要に応じてRG作成 → SWA作成
+        Write-Info "既存の Static Web App を削除して再作成します。"
+        Remove-StaticWebAppWithConfirmation -Name $Name -ResourceGroup $swaOwnerRg
+        
+        if (-not $targetRgExists) {
+            Write-Info "リソースグループ '$ResourceGroupName' を '$ResourceGroupLocation' に作成しています..."
+            az group create --name $ResourceGroupName --location $ResourceGroupLocation | Out-Null
+            if ($LASTEXITCODE -ne 0) {
+                throw 'リソースグループの作成に失敗しました。'
+            }
+        }
+        
+        Write-Info "Static Web App '$Name' を作成しています..."
+        az staticwebapp create --name $Name --resource-group $ResourceGroupName --sku $Sku | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            throw 'Static Web App の作成に失敗しました。'
+        }
+        
+        $deploymentToken = Get-DeploymentToken -Name $Name -ResourceGroup $ResourceGroupName
+        Write-Info 'デプロイトークンを取得しました。'
+        
+        Set-GitHubSecret -Repo $targetGitHubRepo -SecretValue $deploymentToken
+        Write-Host "[SUCCESS] GitHub シークレット '$GitHubSecretNameConst' を $targetGitHubRepo 用に更新しました。" -ForegroundColor Green
+    }
+    else {
+        # 再利用: 既存のまま設定のみ更新
+        Write-Info "既存の Static Web App を再利用します（リソースグループ: $swaOwnerRg）。"
+        # 既存SWA所属のRGを使用するため、ResourceGroupNameを上書き
+        $ResourceGroupName = $swaOwnerRg
+    }
+}
+
+# ========================================
+# OAuth手順とアプリ設定更新
+# ========================================
 
 # OAuth 手順を表示
 Show-GitHubOAuthInstructions -Name $Name -ResourceGroup $ResourceGroupName
