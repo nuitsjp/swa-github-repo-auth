@@ -34,40 +34,57 @@ npx @azure/static-web-apps-cli start ./docs --api-location api --swa-config-loca
 
 ### 2. Azure Static Web Apps リソース作成
 
-- `scripts/New-SwaResources.ps1` (PowerShell Core) でリソース グループと SWA を一括作成できます。デフォルトで `rg-<repo-name>-prod` / `stapp-<repo-name>-prod` を利用し、アプリ/Functions パスも現在の構成 (`docs`, `api`) が自動で指定されます。`--Force` を付けると既存のリソースグループごと削除してから再作成するため、SWA もまとめて再プロビジョニングされます。ローカル依存関係や CLI 拡張は事前に `Prepare-LocalEnvironment.ps1` で整えてから実行してください。Azure リソース作成後はデプロイトークンを取得し、GitHub シークレットを自動で更新します。
-- Static Web Apps は Microsoft Learn の [公式ドキュメント](https://learn.microsoft.com/azure/static-web-apps/deploy-web-framework#create-a-static-web-app-on-azure) にある通りグローバル分散サービスであり、SWA 本体のロケーション指定は不要です（リソース グループのリージョンは `japaneast` を既定にしています）。
+`scripts/New-SwaResources.ps1` (PowerShell Core) でリソースグループと SWA の作成、GitHub シークレットの登録、アプリ設定の更新を統合的に実行できます。
+
+#### 基本動作
+
+1. **サブスクリプション選択**: スクリプト開始時に現在のサブスクリプションを確認し、必要に応じて別のサブスクリプションを選択可能
+2. **リポジトリ情報の自動検出**: `git remote origin` から GitHub リポジトリの所有者と名前を自動取得
+3. **既存リソースの確認**: Static Web App がグローバルに存在するかを検索
+4. **再利用/再作成の選択**: 既存の SWA が見つかった場合、対話的に再利用または再作成を選択
+5. **デプロイトークンの自動設定**: 新規作成時はデプロイトークンを取得し、GitHub シークレット `AZURE_STATIC_WEB_APPS_API_TOKEN` を自動登録
 
 ```bash
-# 既定値で空の Static Web App を作成
+# 対話形式で実行（サブスクリプション選択、既存リソースの再利用確認を含む）
 pwsh ./scripts/New-SwaResources.ps1
 
-# GitHub シークレットまで自動更新する場合 (gh CLI & PAT が必要)
-pwsh ./scripts/New-SwaResources.ps1
+# パラメータを指定して実行
+pwsh ./scripts/New-SwaResources.ps1 \
+  --resource-group-name rg-mydocs-prod \
+  --name stapp-mydocs-prod \
+  --client-id <GitHub OAuth Client ID> \
+  --client-secret <GitHub OAuth Client Secret>
 ```
 
-- スクリプト実行時に、SWA から取得したデプロイトークンを GitHub CLI (`gh secret set`) で `AZURE_STATIC_WEB_APPS_API_TOKEN` シークレットに保存します。対象リポジトリは `git remote origin` を自動解決し、シークレット名は固定です。
-- `.github/workflows/deploy-azure-static-web-apps.yml` が本リポジトリに含まれているため、スクリプトで取得したデプロイトークンをシークレットに登録するだけで GitHub Actions から SWA へデプロイできます。
+#### パラメータ
+
+- `ResourceGroupName`: リソースグループ名（デフォルト: `rg-<repo>-prod`）
+- `Name`: Static Web App 名（デフォルト: `stapp-<repo>-prod`）  
+- `ResourceGroupLocation`: リソースグループのリージョン（デフォルト: `japaneast`）
+- `Sku`: Static Web App の SKU（Free/Standard/Dedicated、デフォルト: Standard）
+- `ClientId`/`ClientSecret`: GitHub OAuth App の認証情報（未指定時は対話プロンプトで入力）
 
 ### 3. GitHub OAuth App の作成
 
+スクリプト実行中に SWA のホスト名を使った設定手順が表示されます：
+
 1. GitHub > Settings > Developer settings > **OAuth Apps** > **New OAuth App**
-2. `Application name` は任意、`Homepage URL`/`Authorization callback URL` に SWA のホスト名を指定
+2. 表示された URL を使用:
+   - **Homepage URL**: `https://<swa-hostname>/`
+   - **Authorization callback URL**: `https://<swa-hostname>/.auth/login/github/callback`
 3. 作成後に表示される **Client ID** と生成した **Client Secret** を安全に保管
 4. Organization リポジトリの場合は OAuth App の Org アクセスを許可
 
 ### 4. 環境変数の設定
 
-- `scripts/New-SwaResources.ps1` はリソース作成に加えて `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, `GITHUB_REPO_OWNER`, `GITHUB_REPO_NAME` のアプリ設定更新にも対応しました。既存の Static Web App が見つかった場合はそのまま再利用し、差分がない作成ステップは自動的にスキップします。リポジトリの所有者・名称は `git remote origin` から自動検出し、既存値と差分がない場合は Azure 側の更新をスキップします。
+`New-SwaResources.ps1` は以下のアプリ設定を自動的に Azure Static Web App に登録します：
 
-```bash
-pwsh ./scripts/New-SwaResources.ps1 \
-  --resource-group swa-docs-rg \
-  --name swa-github-docs \
-  --client-id <GitHub OAuth Client ID> \
-  --client-secret <GitHub OAuth Client Secret>
-```
+- `GITHUB_CLIENT_ID`: GitHub OAuth App の Client ID
+- `GITHUB_CLIENT_SECRET`: GitHub OAuth App の Client Secret  
+- `GITHUB_REPO_OWNER`: リポジトリ所有者（git remote から自動検出）
+- `GITHUB_REPO_NAME`: リポジトリ名（git remote から自動検出）
 
-- 未指定の Client ID / Secret は、SWA 作成と GitHub OAuth App 手順の案内を表示したあとで対話プロンプトが表示されます。値は Azure App Settings に保存され、Git には含めません。
+Client ID/Secret が未指定の場合、GitHub OAuth App 作成手順の表示後に対話プロンプトで入力を求められます。
 
 ### 5. 動作確認
 
