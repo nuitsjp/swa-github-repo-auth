@@ -163,5 +163,5 @@ sequenceDiagram
 
 ### ログアウト動作
 
-- `docs/signed-out/index.html` は匿名アクセスを許可したサインアウト用ページで、`/.auth/logout?post_logout_redirect_uri=/signed-out/` から誘導されます。また `staticwebapp.config.json` の `401` レスポンスを `/signed-out/` にリダイレクトするよう上書きしているため、未ログインで `/` へアクセスした場合もこのページに誘導され、ユーザー自身の操作で再ログインを始めます。
-- GitHubのセッションは別管理のため、`GitHubで再ログイン` ボタンを押した際は GitHub 側のログイン状態に応じて再認証が自動的に完了します。完全にサインアウトしたい場合はサインアウトページにある GitHub ログアウトリンクも利用してください。
+- `docs/signed-out/index.html` は `/.auth/logout?post_logout_redirect_uri=/signed-out/` から誘導されるサインアウト用ページで、読み込み時に `/.auth/purge/github` を `POST` して SWA 側が保持するトークンを削除します。手動で再実行したい場合に備えてボタンも配置しています。
+- GitHub のセッションは別管理のため、`staticwebapp.config.json` の `401` レスポンスは Learn の推奨どおり `/.auth/login/github?post_login_redirect_uri=.referrer` を指し続け、未ログインのまま保護ルートにアクセスすると再び GitHub ログインへリダイレクトされます。完全にサインアウトしたい場合はサインアウトページにある「アプリの認証情報を再度削除」「GitHubをログアウト」を順に利用してください。

@@ -43,6 +43,16 @@
       color: #24292f;
       border: 1px solid #d0d7de;
     }
+    .status {
+      margin-top: 16px;
+      font-size: 0.95rem;
+      color: #57606a;
+    }
+    .hint {
+      margin-top: 24px;
+      font-size: 0.85rem;
+      color: #6e7781;
+    }
   </style>
 </head>
 <body>
@@ -52,19 +62,45 @@
       Azure Static Web Apps からのサインアウトが完了しました。<br />
       再度閲覧するには、GitHubでサインインしてください。
     </p>
-    <p>
-      <small>※ GitHub 自体のセッションは保持されます。完全にログアウトしたい場合は GitHub 側でもサインアウトしてください。</small>
-    </p>
+    <p class="status" id="purge-status">アプリ側の認証情報を整理しています...</p>
     <div class="actions">
       <button class="btn btn-primary" onclick="login()">GitHubで再ログイン</button>
+      <button class="btn btn-ghost" id="purge-button" onclick="purgeAuth()">アプリの認証情報を再度削除</button>
       <a class="btn btn-ghost" href="https://github.com/logout" target="_blank" rel="noreferrer">GitHubをログアウト</a>
     </div>
+    <p class="hint">
+      GitHub 自体のログイン状態は別管理です。完全にサインアウトしたい場合は<br />
+      上記の <strong>アプリの認証情報を再度削除</strong> と <strong>GitHubをログアウト</strong> を順に実行してください。
+    </p>
   </div>
 
   <script>
     function login() {
       window.location.href = '/.auth/login/github?post_login_redirect_uri=/';
     }
+
+    async function purgeAuth() {
+      const status = document.getElementById('purge-status');
+      const button = document.getElementById('purge-button');
+
+      button.disabled = true;
+      status.textContent = 'アプリの認証情報を削除しています...';
+
+      try {
+        const response = await fetch('/.auth/purge/github', { method: 'POST' });
+        if (response.ok) {
+          status.textContent = 'SWA 側のセッションを削除しました。必要に応じて GitHub もログアウトしてください。';
+        } else {
+          status.textContent = `SWA セッション削除に失敗しました (status: ${response.status})。時間をおいて再試行してください。`;
+          button.disabled = false;
+        }
+      } catch (error) {
+        status.textContent = 'SWA セッション削除に失敗しました。ネットワーク状態を確認してください。';
+        button.disabled = false;
+      }
+    }
+
+    document.addEventListener('DOMContentLoaded', purgeAuth);
   </script>
 </body>
 </html>
