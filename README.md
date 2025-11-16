@@ -92,7 +92,35 @@ npm test
 
 ## SWAアクセス時の動作
 
-このリポジトリでは、`staticwebapp.config.json` の `rolesSource` に `/api/AuthorizeRepositoryAccess` を指定し、GitHub OAuth で取得したアクセストークンを用いて対象リポジトリの read 権限を判定しています。リクエストからロール決定までの概略シーケンスは以下の通りです。
+このリポジトリでは、`staticwebapp.config.json` の `rolesSource` に `/api/AuthorizeRepositoryAccess` を指定し、GitHub OAuth で取得したアクセストークンを用いて対象リポジトリの read 権限を判定しています。
+
+### アーキテクチャ
+
+```mermaid
+architecture-beta
+    service browser(internet)[Browser]
+    
+    group swa(cloud)[Azure Static Web Apps]
+    service auth(server)[GitHub OAuth] in swa
+    service content(disk)[Static Content] in swa
+    
+    group functions(server)[Azure Functions]
+    service roleFunc(server)[AuthorizeRepositoryAccess] in functions
+    
+    group github(cloud)[GitHub]
+    service ghapi(internet)[REST API] in github
+    
+    browser:R -- L:auth
+    auth:R -- L:content
+    content:R -- L:browser
+    auth:B -- T:roleFunc
+    roleFunc:R -- L:ghapi
+    ghapi:L -- R:auth
+```
+
+### リクエストシーケンス
+
+リクエストからロール決定までの概略シーケンスは以下の通りです。
 
 ```mermaid
 sequenceDiagram
