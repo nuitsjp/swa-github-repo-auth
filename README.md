@@ -68,6 +68,28 @@ pwsh ./scripts/New-SwaResources.ps1 `
 pwsh ./scripts/New-SwaResources.ps1
 ```
 
+### 3. API開発
+
+#### 1. 依存関係のインストール
+
+Azure Functionsの依存関係をインストールします:
+
+```bash
+cd api
+npm install
+```
+
+#### 2. テスト実行
+
+Azure Functionsのテストを実行するには、以下のコマンドを実行します:
+
+```bash
+cd api
+npm test
+```
+
+これにより、Jestによるユニットテストとカバレッジレポートが生成されます。
+
 ## SWAアクセス時の動作
 
 このリポジトリでは、`staticwebapp.config.json` の `rolesSource` に `/api/AuthorizeRepositoryAccess` を指定し、GitHub OAuth で取得したアクセストークンを用いて対象リポジトリの read 権限を判定しています。リクエストからロール決定までの概略シーケンスは以下の通りです。
@@ -78,8 +100,8 @@ sequenceDiagram
     participant SWA as Azure Static Web Apps
     participant Login as SWA GitHub OAuth
     participant RoleSrc as /api/AuthorizeRepositoryAccess
-    participant Principal as extractGitHubPrincipal
-    participant Authorizer as repositoryAuthorizer.authorize
+    participant Principal as githubPrincipal.extractGitHubPrincipal
+    participant Authorizer as createRepositoryAuthorizer().authorize
     participant GH as GitHub REST API
 
     Browser->>SWA: GET /
@@ -90,10 +112,10 @@ sequenceDiagram
     Login-->>SWA: clientPrincipal (accessToken付き)
 
     SWA->>RoleSrc: POST clientPrincipal
-    RoleSrc->>Principal: extractGitHubPrincipal(req)
+    RoleSrc->>Principal: githubPrincipal.extractGitHubPrincipal(req)
     Principal-->>RoleSrc: principal(identity, accessToken)
 
-    RoleSrc->>Authorizer: authorize(accessToken, logger)
+    RoleSrc->>Authorizer: repositoryAuthorizer.authorize(accessToken, logger)
     Authorizer->>GH: GET https://api.github.com/repos/{owner}/{repo}
     GH-->>Authorizer: 200 / 401 / 403 / 404
     alt GitHubのリポジトリアクセス権あり (200)
@@ -107,6 +129,6 @@ sequenceDiagram
     end
 ```
 
-- `extractGitHubPrincipal` が GitHub 以外のプリンシパルやトークン欠如を検知した場合は即座に匿名相当 (`[]`) を返し、SWA で 401/403 として扱われます。
-- `repositoryAuthorizer.authorize` は GitHub REST API の `/repos/{owner}/{repo}` を呼び出し、HTTP 200 なら `['authorized']` を返却し、401/403/404 などは `[]` にフォールバックします。
-- ノート: `api/lib/githubPrincipal.js` の `extractGitHubPrincipal` は `req.body.clientPrincipal` から GitHub プロバイダーの情報だけを抽出し、`userId`/`userDetails`/`accessToken` を正規化して返します。GitHub 以外の ID やトークン欠如時は `null` を返して以降の処理が匿名扱いになるようガードしています。
+- `/api/AuthorizeRepositoryAccess` エンドポイントは `api/AuthorizeRepositoryAccess/index.js` にある `createAuthorizeRepositoryAccessHandler` が実体であり、`createRepositoryAuthorizer()` で生成した `repositoryAuthorizer.authorize` と `githubPrincipal.extractGitHubPrincipal` を組み合わせてロールを決定します。
+- `api/lib/githubPrincipal.js` の `extractGitHubPrincipal` は GitHub 以外のプリンシパルやトークン欠如を検知した場合は即座に匿名相当 (`[]`) を返すよう `null` を返却し、`req.body.clientPrincipal` (または `req.body`) から GitHub プロバイダーの情報だけを抽出して `userId`/`userDetails`/`accessToken` を正規化します。
+- `api/lib/repositoryAuthorizer.js` の `createRepositoryAuthorizer(...).authorize` は GitHub REST API の `/repos/{owner}/{repo}` を呼び出し、HTTP 200 なら `true` を返却します。401/403/404 や例外時は `false` を返し、その結果をハンドラーが `['authorized']` もしくは `[]` に変換します。
