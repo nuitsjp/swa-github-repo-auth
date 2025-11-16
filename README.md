@@ -160,3 +160,8 @@ sequenceDiagram
 - `/api/AuthorizeRepositoryAccess` エンドポイントは `api/AuthorizeRepositoryAccess/index.js` にある `createAuthorizeRepositoryAccessHandler` が実体であり、`createRepositoryAuthorizer()` で生成した `repositoryAuthorizer.authorize` と `githubPrincipal.extractGitHubPrincipal` を組み合わせてロールを決定します。
 - `api/lib/githubPrincipal.js` の `extractGitHubPrincipal` は GitHub 以外のプリンシパルやトークン欠如を検知した場合は即座に匿名相当 (`[]`) を返すよう `null` を返却し、`req.body.clientPrincipal` (または `req.body`) から GitHub プロバイダーの情報だけを抽出して `userId`/`userDetails`/`accessToken` を正規化します。
 - `api/lib/repositoryAuthorizer.js` の `createRepositoryAuthorizer(...).authorize` は GitHub REST API の `/repos/{owner}/{repo}` を呼び出し、HTTP 200 なら `true` を返却します。401/403/404 や例外時は `false` を返し、その結果をハンドラーが `['authorized']` もしくは `[]` に変換します。
+
+### ログアウト動作
+
+- `docs/signed-out/index.html` は匿名アクセスを許可したサインアウト用ページで、`/.auth/logout?post_logout_redirect_uri=/signed-out/` から誘導されます。
+- GitHubのセッションは別管理のため、SWA側でログアウト後すぐ `/` を再訪すると 401 -> `/ .auth/login/github` の順で再ログインが走ります。ログアウト状態を維持したい場合はサインアウトページで留まり、必要に応じて GitHub 側もログアウトしてください。

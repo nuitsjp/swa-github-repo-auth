@@ -28,6 +28,10 @@
       "allowedRoles": ["authorized"]
     },
     {
+      "route": "/signed-out/*",
+      "allowedRoles": ["anonymous", "authorized"]
+    },
+    {
       "route": "/*",
       "allowedRoles": ["authorized"]
     }
