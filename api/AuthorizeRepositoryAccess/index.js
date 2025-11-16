@@ -43,30 +43,6 @@ module.exports = async function (context, req) {
       }
     }
 
-    // ヘッダーから取得を試行(ボディで見つからなかった場合)
-    if (!principal) {
-      const headers = req.headers || {};
-      const headerValue = headers['x-ms-client-principal'] || headers['X-MS-CLIENT-PRINCIPAL'];
-      
-      if (headerValue && typeof headerValue === 'string') {
-        try {
-          const decoded = Buffer.from(headerValue, 'base64').toString('utf8');
-          const decodedHeader = JSON.parse(decoded);
-          const candidate = decodedHeader.clientPrincipal || decodedHeader;
-          
-          if (candidate.identityProvider === 'github') {
-            principal = {
-              userId: candidate.userId || candidate.user_id || null,
-              userDetails: candidate.userDetails || candidate.user_details || null,
-              accessToken: candidate.accessToken || candidate.access_token || null
-            };
-          }
-        } catch (error) {
-          // デコードエラーは無視
-        }
-      }
-    }
-
     // GitHub 以外の ID プロバイダーまたは未認証の場合
     if (!principal) {
       log.info('Non-GitHub identity detected, assigning anonymous role.');
