@@ -1,3 +1,4 @@
+// API ディレクトリ用の ESLint 設定。テストやビルド成果物は除外する。
 module.exports = {
   root: true,
   env: {

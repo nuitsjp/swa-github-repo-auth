@@ -9,6 +9,7 @@ const {
 
 describe('config helpers', () => {
   it('loads configuration with sanitized values and defaults', () => {
+    // 値をトリムし、任意設定にはデフォルトを適用する。
     const config = loadGitHubRepoConfig({
       GITHUB_REPO_OWNER: ' owner ',
       GITHUB_REPO_NAME: ' repo ',
@@ -30,6 +31,7 @@ describe('config helpers', () => {
   });
 
   it('falls back to defaults when optional settings absent', () => {
+    // 任意の環境変数が無くても定数にフォールバック。
     const config = loadGitHubRepoConfig({
       GITHUB_REPO_OWNER: 'octocat',
       GITHUB_REPO_NAME: 'demo'
@@ -47,24 +49,28 @@ describe('config helpers', () => {
   });
 
   it('tracks missing required configuration', () => {
+    // 必須環境変数の欠如を missing に記録する。
     const config = loadGitHubRepoConfig({});
 
     expect(config.missing).toEqual(['GITHUB_REPO_OWNER', 'GITHUB_REPO_NAME']);
   });
 
   it('throws when ensuring config without required values', () => {
+    // ensureGitHubRepoConfig は必須値が無いと例外を投げる。
     expect(() => ensureGitHubRepoConfig({})).toThrow(
       'Missing required GitHub repository configuration: GITHUB_REPO_OWNER, GITHUB_REPO_NAME'
     );
   });
 
   it('throws when environment bag is not an object', () => {
+    // env がオブジェクトでない場合の健全性チェック。
     expect(() => loadGitHubRepoConfig(null)).toThrow(
       'Environment bag must be provided when loading GitHub repo configuration.'
     );
   });
 
   it('ensures config when required values exist', () => {
+    // 必須値が揃えば正しくパースされた config を返す。
     const config = ensureGitHubRepoConfig({
       GITHUB_REPO_OWNER: 'octocat',
       GITHUB_REPO_NAME: 'demo'

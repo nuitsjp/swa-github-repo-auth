@@ -1,3 +1,4 @@
+// API 配下のユニットテスト設定。lib と Functions 本体のカバレッジを検査する。
 module.exports = {
   testEnvironment: 'node',
   roots: ['<rootDir>/__tests__'],

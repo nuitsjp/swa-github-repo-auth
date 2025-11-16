@@ -1,20 +1,28 @@
+// x-ms-client-principal ではプリンシパルを base64 で搬送する。
 function decodeClientPrincipal(headerValue) {
   try {
+    // base64 エンコードされたヘッダー値をデコード
     const decoded = Buffer.from(headerValue, 'base64').toString('utf8');
+    // JSON として解析
     const payload = JSON.parse(decoded);
+    // ネストされた clientPrincipal フィールドがあればそれを優先、なければペイロード全体を返す
     return payload && typeof payload === 'object'
       ? (payload.clientPrincipal || payload)
       : null;
   } catch (error) {
+    // デコードまたは JSON 解析に失敗した場合は null を返す
     return null;
   }
 }
 
+// SWA/レガシー両方のフィールド名を正規化する。
 function normalizePrincipal(candidate) {
+  // GitHub プロバイダー以外は null を返す
   if (!candidate || candidate.identityProvider !== 'github') {
     return null;
   }
 
+  // 新旧両方のフィールド名に対応した正規化オブジェクトを返す
   return {
     identityProvider: 'github',
     userId: candidate.userId || candidate.user_id || null,
@@ -24,22 +32,27 @@ function normalizePrincipal(candidate) {
 }
 
 function extractGitHubPrincipal(req) {
+  // リクエストオブジェクトの存在を検証
   if (!req || typeof req !== 'object') {
     return null;
   }
 
+  // body を優先し、無ければヘッダーから復元する。
   let candidate = null;
 
+  // まず req.body から clientPrincipal を抽出
   if (req.body && typeof req.body === 'object') {
     candidate = typeof req.body.clientPrincipal === 'object'
       ? req.body.clientPrincipal
       : req.body;
   }
 
+  // body に見つからない場合は x-ms-client-principal ヘッダーからデコード
   if (!candidate && req.headers && req.headers['x-ms-client-principal']) {
     candidate = decodeClientPrincipal(req.headers['x-ms-client-principal']);
   }
 
+  // 抽出した候補を正規化して返す
   return normalizePrincipal(candidate);
 }
 

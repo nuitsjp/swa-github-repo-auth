@@ -30,12 +30,14 @@ function buildContext() {
 
 describe('createAuthorizeRepositoryAccessHandler', () => {
   it('throws when authorizer missing authorize function', () => {
+    // ガードレール: authorizer は authorize を必ず持つ。
     expect(() =>
       createAuthorizeRepositoryAccessHandler({ authorizer: {} })
     ).toThrow('An authorizer with an authorize method must be provided.');
   });
 
   it('returns anonymous roles for non-GitHub principals', async () => {
+    // GitHub 以外は authorizer を呼ばず匿名扱い。
     const context = buildContext();
     const authorizer = { authorize: jest.fn() };
     const handler = createAuthorizeRepositoryAccessHandler({ authorizer });
@@ -47,6 +49,7 @@ describe('createAuthorizeRepositoryAccessHandler', () => {
   });
 
   it('denies access when GitHub token missing', async () => {
+    // トークン欠如は匿名扱い。
     const context = buildContext();
     const authorizer = { authorize: jest.fn() };
     const handler = createAuthorizeRepositoryAccessHandler({ authorizer });
@@ -61,6 +64,7 @@ describe('createAuthorizeRepositoryAccessHandler', () => {
   });
 
   it('assigns authorized role when authorizer grants access', async () => {
+    // 正常系: authorizer が true を返せば authorized 付与。
     const context = buildContext();
     const authorizer = { authorize: jest.fn().mockResolvedValue(true) };
     const handler = createAuthorizeRepositoryAccessHandler({ authorizer });
@@ -80,6 +84,7 @@ describe('createAuthorizeRepositoryAccessHandler', () => {
   });
 
   it('logs user id when details absent', async () => {
+    // userDetails 不在なら userId をログに使う。
     const context = buildContext();
     const authorizer = { authorize: jest.fn().mockResolvedValue(true) };
     const handler = createAuthorizeRepositoryAccessHandler({ authorizer });
@@ -99,6 +104,7 @@ describe('createAuthorizeRepositoryAccessHandler', () => {
   });
 
   it('falls back to unknown when id and details missing', async () => {
+    // 識別子が無ければ unknown をログする。
     const context = buildContext();
     const authorizer = { authorize: jest.fn().mockResolvedValue(true) };
     const handler = createAuthorizeRepositoryAccessHandler({ authorizer });
@@ -117,6 +123,7 @@ describe('createAuthorizeRepositoryAccessHandler', () => {
   });
 
   it('returns anonymous role when authorizer denies access', async () => {
+    // authorizer が拒否したら匿名ロール。
     const context = buildContext();
     const authorizer = { authorize: jest.fn().mockResolvedValue(false) };
     const handler = createAuthorizeRepositoryAccessHandler({ authorizer });
@@ -135,6 +142,7 @@ describe('createAuthorizeRepositoryAccessHandler', () => {
   });
 
   it('safely handles unexpected errors', async () => {
+    // authorizer からの例外も捕捉しロギング。
     const context = buildContext();
     const authorizer = {
       authorize: jest.fn().mockRejectedValue(new Error('boom'))
@@ -155,6 +163,7 @@ describe('createAuthorizeRepositoryAccessHandler', () => {
   });
 
   it('logs raw error when message missing', async () => {
+    // message が無くても生のオブジェクトを記録。
     const context = buildContext();
     const authorizer = {
       authorize: jest.fn().mockRejectedValue({})
@@ -179,10 +188,12 @@ describe('createAuthorizeRepositoryAccessHandler', () => {
 
 describe('createLogger', () => {
   it('returns console when log function missing', () => {
+    // ロガー未指定なら console にフォールバック。
     expect(createLogger(undefined)).toBe(console);
   });
 
   it('binds warn and error to fallback when not provided', () => {
+    // warn/error を持たない関数ロガーは info を使う。
     const info = jest.fn();
     const logger = createLogger(info);
 
@@ -196,6 +207,7 @@ describe('createLogger', () => {
   });
 
   it('uses provided warn/error when log is function with handlers', () => {
+    // warn/error がある関数ロガーはそれを優先。
     const info = jest.fn();
     const warn = jest.fn();
     const error = jest.fn();
@@ -220,6 +232,7 @@ describe('createLogger', () => {
   });
 
   it('handles plain logger objects without warn/error', () => {
+    // warn/error を欠くオブジェクトロガーは info を転用。
     const logger = createLogger({ info: jest.fn() });
 
     logger.warn('warn');
@@ -230,6 +243,7 @@ describe('createLogger', () => {
   });
 
   it('returns no-op functions when logger shape is unsupported', () => {
+    // 形の合わないロガーは no-op を返す。
     const logger = createLogger({});
 
     expect(() => logger.info('noop')).not.toThrow();
@@ -237,6 +251,7 @@ describe('createLogger', () => {
   });
 
   it('uses warn/error when logger object provides them without info', () => {
+    // warn/error のみ持つロガーもそのまま利用。
     const warn = jest.fn();
     const error = jest.fn();
     const logger = createLogger({ warn, error });
