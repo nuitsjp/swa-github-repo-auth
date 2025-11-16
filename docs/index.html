@@ -26,32 +26,26 @@
       border-radius: 4px;
       cursor: pointer;
     }
-    nav ul {
-      list-style: none;
-      padding-left: 0;
-    }
-    nav li {
-      margin-bottom: 8px;
-    }
   </style>
 </head>
 <body>
   <div id="user-info" class="user-info"></div>
 
-  <h1>📚 Repository Documentation</h1>
-  <p>このドキュメントは対象リポジトリへのread権限を持つGitHubユーザーのみが閲覧できます。</p>
-
-  <nav>
-    <ul>
-      <li><a href="/getting-started/">Getting Started</a></li>
-      <li><a href="/api-reference/">API Reference</a></li>
-      <li><a href="/contributing/">Contributing Guide</a></li>
-    </ul>
-  </nav>
+  <h1>📚 SWA + GitHub 認証サンプル</h1>
+  <p>Azure Static Web Apps (Standard) で特定リポジトリの read 権限を持つ GitHub ユーザーだけにドキュメントを配信するための最小構成サンプルです。</p>
 
   <section>
-    <h2>概要</h2>
-    <p>Azure Static Web Appsとカスタムロールプロバイダーを組み合わせることで、GitHubのリポジトリ権限に基づくアクセス制御を実現しています。</p>
+    <h2>サイトの目的</h2>
+    <p>対象リポジトリの閲覧権限をそのまま Web コンテンツに適用し、許可されたコラボレーターだけが資料を読めるようにします。</p>
+  </section>
+
+  <section>
+    <h2>実現手段</h2>
+    <ul>
+      <li>PowerShell スクリプト <code>scripts/New-SwaResources.ps1</code> で SWA リソースと GitHub OAuth 設定を自動作成します。</li>
+      <li>カスタムロールプロバイダー <code>/api/AuthorizeRepositoryAccess</code> が OAuth で得たアクセストークンを GitHub REST API へ照会し、権限がある場合だけ <code>authorized</code> ロールを返します。</li>
+    </ul>
+    <p>詳細なセットアップや動作の流れは README を参照してください。</p>
   </section>
 
   <script>
