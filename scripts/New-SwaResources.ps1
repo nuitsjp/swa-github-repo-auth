@@ -17,6 +17,9 @@ Static Web App 名を上書きします（デフォルト: stapp-<repo>-prod）�
 .PARAMETER ResourceGroupLocation
 リソースグループのリージョン（デフォルト: japaneast）。
 
+.PARAMETER SubscriptionId
+利用する Azure サブスクリプション ID。指定された場合は確認プロンプトをスキップし、その ID を直接使用します。
+
 .PARAMETER Sku
 Static Web App の SKU（Free、Standard）。
 
@@ -41,6 +44,7 @@ param(
     [string]$ResourceGroupName,
     [string]$Name,
     [string]$ResourceGroupLocation = 'japaneast',
+    [string]$SubscriptionId,
     [ValidateSet('Free', 'Standard')]
     [string]$Sku = 'Standard',
     [string]$ClientId,
@@ -55,7 +59,7 @@ $OutputEncoding = [System.Text.Encoding]::UTF8
 function Main {
     Set-Variable -Name GitHubSecretNameConst -Value 'AZURE_STATIC_WEB_APPS_API_TOKEN' -Option Constant
 
-    $subscriptionContext = Resolve-SubscriptionContext
+    $subscriptionContext = Resolve-SubscriptionContext -SubscriptionId $SubscriptionId
     $provisionContext = Initialize-ExecutionContext `
         -SubscriptionContext $subscriptionContext `
         -RequestedResourceGroupName $ResourceGroupName `
@@ -114,6 +118,18 @@ function Get-AllSubscriptions {
 }
 
 function Resolve-SubscriptionContext {
+    param([string]$SubscriptionId)
+
+    if ($SubscriptionId) {
+        $trimmedId = $SubscriptionId.Trim()
+        Write-Info "指定されたサブスクリプション ID '$trimmedId' を使用します。"
+        $specified = az account show --subscription $trimmedId --query '{id:id,name:name}' -o json 2>$null
+        if ($LASTEXITCODE -ne 0 -or -not $specified) {
+            throw "サブスクリプション ID '$trimmedId' を取得できませんでした。存在し、アクセス権があるか確認してください。"
+        }
+        return $specified | ConvertFrom-Json
+    }
+
     $current = Get-CurrentSubscription
     Write-Info "現在のサブスクリプション: $($current.name) ($($current.id))"
 
