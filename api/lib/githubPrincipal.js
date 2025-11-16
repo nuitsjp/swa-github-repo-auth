@@ -40,10 +40,17 @@ function extractGitHubPrincipal(req) {
   // body を優先し、無ければヘッダーから復元する。
   let candidate = null;
 
-  // req.body から clientPrincipal を抽出
-  candidate = typeof req.body.clientPrincipal === 'object'
-    ? req.body.clientPrincipal
-    : req.body;
+  // まず req.body から clientPrincipal を抽出
+  if (req.body && typeof req.body === 'object') {
+    candidate = typeof req.body.clientPrincipal === 'object'
+      ? req.body.clientPrincipal
+      : req.body;
+  }
+
+  // body に見つからない場合は x-ms-client-principal ヘッダーからデコード
+  if (!candidate && req.headers && req.headers['x-ms-client-principal']) {
+    candidate = decodeClientPrincipal(req.headers['x-ms-client-principal']);
+  }
 
   // 抽出した候補を正規化して返す
   return normalizePrincipal(candidate);
