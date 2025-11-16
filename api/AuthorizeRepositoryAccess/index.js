@@ -1,9 +1,7 @@
 const axios = require('axios');
 const { createRepositoryAuthorizer } = require('../lib/repositoryAuthorizer');
 const { extractGitHubPrincipal } = require('../lib/githubPrincipal');
-
-const repoOwner = process.env.GITHUB_REPO_OWNER;
-const repoName = process.env.GITHUB_REPO_NAME;
+const { ensureGitHubRepoConfig } = require('../lib/config');
 
 function createLogger(logFn) {
   if (!logFn) {
@@ -73,10 +71,15 @@ function createAuthorizeRepositoryAccessHandler({
   };
 }
 
+const repoConfig = ensureGitHubRepoConfig(process.env);
 const repositoryAuthorizer = createRepositoryAuthorizer({
-  repoOwner,
-  repoName,
-  httpClient: axios
+  repoOwner: repoConfig.repoOwner,
+  repoName: repoConfig.repoName,
+  httpClient: axios,
+  apiBaseUrl: repoConfig.apiBaseUrl,
+  apiVersion: repoConfig.apiVersion,
+  requestTimeoutMs: repoConfig.requestTimeoutMs,
+  userAgent: repoConfig.userAgent
 });
 
 module.exports = createAuthorizeRepositoryAccessHandler({

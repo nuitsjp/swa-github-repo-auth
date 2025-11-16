@@ -1,4 +1,11 @@
-const { createRepositoryAuthorizer } = require('../lib/repositoryAuthorizer');
+const {
+  createRepositoryAuthorizer
+} = require('../lib/repositoryAuthorizer');
+const {
+  DEFAULT_API_VERSION,
+  DEFAULT_TIMEOUT_MS,
+  DEFAULT_USER_AGENT
+} = require('../lib/config');
 
 describe('createRepositoryAuthorizer', () => {
   const repoOwner = 'octocat';
@@ -24,11 +31,15 @@ describe('createRepositoryAuthorizer', () => {
     expect(result).toBe(true);
     expect(httpClient.get).toHaveBeenCalledWith(
       'https://api.github.com/repos/octocat/demo',
-      expect.objectContaining({
-        headers: expect.objectContaining({
-          Authorization: 'Bearer token'
-        })
-      })
+      {
+        timeout: DEFAULT_TIMEOUT_MS,
+        headers: {
+          Authorization: 'Bearer token',
+          Accept: 'application/vnd.github+json',
+          'User-Agent': DEFAULT_USER_AGENT,
+          'X-GitHub-Api-Version': DEFAULT_API_VERSION
+        }
+      }
     );
   });
 
@@ -44,6 +55,33 @@ describe('createRepositoryAuthorizer', () => {
     expect(result).toBe(false);
     expect(logger.warn).toHaveBeenCalledWith('Repository identification is not configured.');
     expect(httpClient.get).not.toHaveBeenCalled();
+  });
+
+  it('supports overriding GitHub API base URL, timeout, version and User-Agent', async () => {
+    httpClient.get.mockResolvedValue({ status: 200 });
+    const authorizer = createRepositoryAuthorizer({
+      repoOwner,
+      repoName,
+      httpClient,
+      apiBaseUrl: 'https://ghe.example.com/api/v3/',
+      requestTimeoutMs: 1234,
+      apiVersion: '2023-10-01',
+      userAgent: 'custom-agent'
+    });
+
+    const result = await authorizer.authorize('token', logger);
+
+    expect(result).toBe(true);
+    expect(httpClient.get).toHaveBeenCalledWith(
+      'https://ghe.example.com/api/v3/repos/octocat/demo',
+      expect.objectContaining({
+        timeout: 1234,
+        headers: expect.objectContaining({
+          'X-GitHub-Api-Version': '2023-10-01',
+          'User-Agent': 'custom-agent'
+        })
+      })
+    );
   });
 
   it('returns false and logs warning on 404 response', async () => {

@@ -1,7 +1,15 @@
+process.env.GITHUB_REPO_OWNER = 'octocat';
+process.env.GITHUB_REPO_NAME = 'demo';
+
 const {
   createAuthorizeRepositoryAccessHandler,
   createLogger
 } = require('../AuthorizeRepositoryAccess/index');
+
+afterAll(() => {
+  delete process.env.GITHUB_REPO_OWNER;
+  delete process.env.GITHUB_REPO_NAME;
+});
 
 function createTestLogger() {
   const logs = [];

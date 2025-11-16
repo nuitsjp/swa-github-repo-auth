@@ -1,6 +1,28 @@
 const { URL } = require('url');
+const {
+  DEFAULT_API_BASE_URL,
+  DEFAULT_API_VERSION,
+  DEFAULT_TIMEOUT_MS,
+  DEFAULT_USER_AGENT
+} = require('./config');
 
-function createRepositoryAuthorizer({ repoOwner, repoName, httpClient }) {
+function buildRepositoryUrl(baseUrl, owner, name) {
+  const parsedBase = new URL(baseUrl);
+  const normalizedPath = parsedBase.pathname.replace(/\/+$/, '');
+  const pathPrefix = normalizedPath === '/' ? '' : normalizedPath;
+
+  return `${parsedBase.origin}${pathPrefix}/repos/${owner}/${name}`;
+}
+
+function createRepositoryAuthorizer({
+  repoOwner,
+  repoName,
+  httpClient,
+  apiBaseUrl = DEFAULT_API_BASE_URL,
+  apiVersion = DEFAULT_API_VERSION,
+  requestTimeoutMs = DEFAULT_TIMEOUT_MS,
+  userAgent = DEFAULT_USER_AGENT
+}) {
   if (!httpClient || typeof httpClient.get !== 'function') {
     throw new Error('An HTTP client with a get method must be provided.');
   }
@@ -18,16 +40,16 @@ function createRepositoryAuthorizer({ repoOwner, repoName, httpClient }) {
       return false;
     }
 
-    const repoUrl = new URL(
-      `/repos/${repoOwner}/${repoName}`,
-      'https://api.github.com'
-    );
+    const repoUrl = buildRepositoryUrl(apiBaseUrl, repoOwner, repoName);
 
     try {
       await httpClient.get(repoUrl.toString(), {
+        timeout: requestTimeoutMs,
         headers: {
           Authorization: `Bearer ${accessToken}`,
-          Accept: 'application/vnd.github+json'
+          Accept: 'application/vnd.github+json',
+          'User-Agent': userAgent,
+          'X-GitHub-Api-Version': apiVersion
         }
       });
       return true;
