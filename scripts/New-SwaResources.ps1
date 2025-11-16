@@ -55,7 +55,9 @@ $OutputEncoding = [System.Text.Encoding]::UTF8
 function Main {
     Set-Variable -Name GitHubSecretNameConst -Value 'AZURE_STATIC_WEB_APPS_API_TOKEN' -Option Constant
 
+    $subscriptionContext = Resolve-SubscriptionContext
     $provisionContext = Initialize-ExecutionContext `
+        -SubscriptionContext $subscriptionContext `
         -RequestedResourceGroupName $ResourceGroupName `
         -RequestedStaticWebAppName $Name `
         -ResourceGroupLocation $ResourceGroupLocation `
@@ -464,13 +466,16 @@ function Set-AppSettings {
 
 function Initialize-ExecutionContext {
     param(
+        $SubscriptionContext,
         [string]$RequestedResourceGroupName,
         [string]$RequestedStaticWebAppName,
         [string]$ResourceGroupLocation,
         [string]$Sku
     )
 
-    $subscriptionContext = Resolve-SubscriptionContext
+    if (-not $SubscriptionContext) {
+        throw 'SubscriptionContext が指定されていません。'
+    }
 
     $repoContext = Resolve-RepoContext
     $repoName = $repoContext.GitHubRepo
@@ -480,8 +485,8 @@ function Initialize-ExecutionContext {
     $staticWebAppName = if ($RequestedStaticWebAppName) { $RequestedStaticWebAppName.Trim() } else { "stapp-$repoName-prod" }
 
     return [PSCustomObject]@{
-        SubscriptionId        = $subscriptionContext.id
-        SubscriptionName      = $subscriptionContext.name
+        SubscriptionId        = $SubscriptionContext.id
+        SubscriptionName      = $SubscriptionContext.name
         ResourceGroupName     = $resourceGroupName
         ResourceGroupLocation = $ResourceGroupLocation
         StaticWebAppName      = $staticWebAppName
