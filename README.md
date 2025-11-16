@@ -67,3 +67,40 @@ pwsh ./scripts/New-SwaResources.ps1 `
 # 引数を省略するとリポジトリ名からの推測値と対話プロンプトで進行
 pwsh ./scripts/New-SwaResources.ps1
 ```
+
+## SWAアクセス時の動作
+
+このリポジトリでは、`staticwebapp.config.json` の `rolesSource` に `/api/AuthorizeRepositoryAccess` を指定し、GitHub OAuth で取得したアクセストークンを用いて対象リポジトリの read 権限を判定しています。リクエストからロール決定までの概略シーケンスは以下の通りです。
+
+```mermaid
+sequenceDiagram
+    participant Browser
+    participant SWA as Azure Static Web Apps
+    participant Login as SWA GitHub OAuth
+    participant RoleSrc as /api/AuthorizeRepositoryAccess
+    participant Principal as extractGitHubPrincipal
+    participant Authorizer as repositoryAuthorizer.authorize
+    participant GH as GitHub REST API
+
+    Browser->>SWA: GET /
+    SWA-->>Browser: 302 -> /.auth/login/github (authorized でない場合)
+    Browser->>Login: /.auth/login/github
+    Login->>GH: OAuth 認証 (scope repo)
+    GH-->>Login: access token
+    Login-->>SWA: clientPrincipal (accessToken付き)
+
+    SWA->>RoleSrc: POST clientPrincipal
+    RoleSrc->>Principal: extractGitHubPrincipal(req)
+    Principal-->>RoleSrc: principal(identity, accessToken)
+
+    RoleSrc->>Authorizer: authorize(accessToken, logger)
+    Authorizer->>GH: GET https://api.github.com/repos/{owner}/{repo}
+    GH-->>Authorizer: 200 / 401 / 403 / 404
+    Authorizer-->>RoleSrc: true / false
+
+    RoleSrc-->>SWA: 200 {roles:['authorized'] or []}
+    SWA-->>Browser: authorizedなら静的コンテンツ返却、否認時は401/403処理
+```
+
+- `extractGitHubPrincipal` が GitHub 以外のプリンシパルやトークン欠如を検知した場合は即座に匿名相当 (`[]`) を返し、SWA で 401/403 として扱われます。
+- `repositoryAuthorizer.authorize` は GitHub REST API の `/repos/{owner}/{repo}` を呼び出し、HTTP 200 なら `['authorized']` を返却し、401/403/404 などは `[]` にフォールバックします。
