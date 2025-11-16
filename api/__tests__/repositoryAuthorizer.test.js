@@ -1,11 +1,11 @@
 const {
   createRepositoryAuthorizer
-} = require('../lib/repositoryAuthorizer');
+} = require('@swa-github-repo-auth/swa-github-auth/lib/repositoryAuthorizer');
 const {
   DEFAULT_API_VERSION,
   DEFAULT_TIMEOUT_MS,
   DEFAULT_USER_AGENT
-} = require('../lib/config');
+} = require('@swa-github-repo-auth/swa-github-auth/lib/config');
 
 describe('createRepositoryAuthorizer', () => {
   const repoOwner = 'octocat';

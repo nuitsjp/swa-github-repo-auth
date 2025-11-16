@@ -2,9 +2,12 @@
 module.exports = {
   testEnvironment: 'node',
   roots: ['<rootDir>/__tests__'],
+  moduleNameMapper: {
+    '^@swa-github-repo-auth/swa-github-auth/(.*)$': '<rootDir>/../packages/swa-github-auth/$1'
+  },
   collectCoverageFrom: [
     'AuthorizeRepositoryAccess/**/*.js',
-    'lib/**/*.js'
+    '../packages/swa-github-auth/lib/**/*.js'
   ],
   coverageThreshold: {
     global: {
