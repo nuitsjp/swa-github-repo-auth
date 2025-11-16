@@ -1,0 +1,11 @@
+{
+  "name": "swa-github-repo-auth-monorepo",
+  "private": true,
+  "workspaces": [
+    "api",
+    "packages/*"
+  ],
+  "scripts": {
+    "test": "npm run test --workspaces"
+  }
+}

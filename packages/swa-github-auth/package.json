@@ -1,0 +1,22 @@
+{
+  "name": "@swa-github-repo-auth/swa-github-auth",
+  "version": "0.1.0",
+  "description": "Reusable GitHub repository authorization helpers for Azure Static Web Apps.",
+  "main": "lib/index.js",
+  "license": "MIT",
+  "files": [
+    "lib"
+  ],
+  "keywords": [
+    "azure",
+    "static-web-apps",
+    "github",
+    "authorization"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "axios": "^1.6.7"
+  }
+}

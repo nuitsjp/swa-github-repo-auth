@@ -40,6 +40,29 @@ GitHubリポジトリのread権限を持つユーザーのみにAzure Static Web
 このリポジトリでは、GitHub OAuthを利用した認可するカスタム認証の実装例を提供します：
 - **PowerShellスクリプト**: SWAリソースの作成とGitHubシークレット/アプリ設定の登録を自動化
 - **カスタム認証実装**: GitHub OAuthを利用した認可ロジック
+- **npmパッケージ**: Functions用の再利用可能なハンドラーを `packages/swa-github-auth` として提供
+
+## 📦 npmパッケージ構成
+
+Azure Functions側のロジックは npm パッケージ `@swa-github-repo-auth/swa-github-auth` に切り出しています。ルートの npm ワークスペースで管理しているため、以下のように利用します。
+
+```bash
+npm install
+
+# Functions 単体で依存関係を再インストールする場合
+cd api
+npm install
+```
+
+Functions プロジェクトでは次のようにハンドラーを取り込みます。
+
+```javascript
+const { createDefaultHandler } = require('@swa-github-repo-auth/swa-github-auth');
+
+module.exports = createDefaultHandler();
+```
+
+パッケージ単体でのユニットテスト/ビルドにも対応できるよう `packages/swa-github-auth` に README と CHANGELOG を配置しています。
 
 ## ✨ 主な機能
 
@@ -143,10 +166,8 @@ sequenceDiagram
 git clone https://github.com/nuitsjp/swa-github-repo-auth.git
 cd swa-github-repo-auth
 
-# 依存関係をインストール
-cd api
+# ワークスペース全体の依存関係をインストール
 npm install
-cd ..
 ```
 
 ### 2. GitHub OAuth Appの作成
