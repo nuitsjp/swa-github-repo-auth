@@ -1,7 +1,7 @@
 {
-  "name": "swa-github-roles-provider-api",
+  "name": "swa-github-repo-auth-api",
   "version": "1.0.0",
-  "description": "Azure Functions backend for GitHub role validation.",
+  "description": "Azure Functions for GitHub repository-based authorization",
   "main": "AuthorizeRepositoryAccess/index.js",
   "license": "MIT",
   "engines": {

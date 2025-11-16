@@ -1,89 +1,94 @@
 const { extractGitHubPrincipal } = require('../lib/githubPrincipal');
 
 describe('extractGitHubPrincipal', () => {
-  it('returns null when request missing', () => {
-    // null や不正リクエストはプリンシパルなし。
-    expect(extractGitHubPrincipal(null)).toBeNull();
-  });
-
-  it('returns null for non-GitHub identity', () => {
-    // GitHub 以外のプロバイダーは無視する。
-    const principal = extractGitHubPrincipal({
-      body: { clientPrincipal: { identityProvider: 'aad' } }
-    });
-    expect(principal).toBeNull();
-  });
-
-  it('normalizes github principal properties', () => {
-    // 標準的な body から camelCase に正規化する。
-    const principal = extractGitHubPrincipal({
+  test('req.body.clientPrincipal から GitHub プリンシパルを抽出', () => {
+    const req = {
       body: {
         clientPrincipal: {
           identityProvider: 'github',
-          userId: 'id-123',
-          userDetails: 'octocat',
-          accessToken: 'token'
+          userId: 'test-user-123',
+          userDetails: 'testuser',
+          accessToken: 'gho_testtoken'
         }
       }
-    });
+    };
 
-    expect(principal).toEqual({
+    const result = extractGitHubPrincipal(req);
+    expect(result).toEqual({
       identityProvider: 'github',
-      userId: 'id-123',
-      userDetails: 'octocat',
-      accessToken: 'token'
+      userId: 'test-user-123',
+      userDetails: 'testuser',
+      accessToken: 'gho_testtoken'
     });
   });
 
-  it('supports flattened payloads', () => {
-    // フラットなボディもサポート。
-    const principal = extractGitHubPrincipal({
+  test('req.body 直下に GitHub プリンシパルがある場合', () => {
+    const req = {
       body: {
         identityProvider: 'github',
-        user_id: 'legacy',
-        user_details: 'octocat',
-        access_token: 'token'
-      }
-    });
-
-    expect(principal).toEqual({
-      identityProvider: 'github',
-      userId: 'legacy',
-      userDetails: 'octocat',
-      accessToken: 'token'
-    });
-  });
-
-  it('extracts principal information from x-ms-client-principal header', () => {
-    // ヘッダー経由の base64 も復号して正規化。
-    const payload = {
-      clientPrincipal: {
-        identityProvider: 'github',
-        user_id: 'header-id',
-        user_details: 'header-user',
-        access_token: 'header-token'
+        userId: 'test-user-456',
+        userDetails: 'anotheruser',
+        accessToken: 'gho_anothertoken'
       }
     };
-    const encoded = Buffer.from(JSON.stringify(payload)).toString('base64');
 
-    const principal = extractGitHubPrincipal({
-      headers: { 'x-ms-client-principal': encoded }
-    });
-
-    expect(principal).toEqual({
+    const result = extractGitHubPrincipal(req);
+    expect(result).toEqual({
       identityProvider: 'github',
-      userId: 'header-id',
-      userDetails: 'header-user',
-      accessToken: 'header-token'
+      userId: 'test-user-456',
+      userDetails: 'anotheruser',
+      accessToken: 'gho_anothertoken'
     });
   });
 
-  it('returns null when header principal cannot be decoded', () => {
-    // base64 が壊れていれば安全に null を返す。
-    const principal = extractGitHubPrincipal({
-      headers: { 'x-ms-client-principal': '!!!not-base64!!!' }
-    });
+  test('レガシーフィールド名(user_id, user_details, access_token)を正規化', () => {
+    const req = {
+      body: {
+        identityProvider: 'github',
+        user_id: 'legacy-user',
+        user_details: 'legacyuser',
+        access_token: 'gho_legacytoken'
+      }
+    };
 
-    expect(principal).toBeNull();
+    const result = extractGitHubPrincipal(req);
+    expect(result).toEqual({
+      identityProvider: 'github',
+      userId: 'legacy-user',
+      userDetails: 'legacyuser',
+      accessToken: 'gho_legacytoken'
+    });
+  });
+
+  test('GitHub 以外のプロバイダーの場合は null を返す', () => {
+    const req = {
+      body: {
+        clientPrincipal: {
+          identityProvider: 'aad',
+          userId: 'aad-user',
+          userDetails: 'aaduser'
+        }
+      }
+    };
+
+    const result = extractGitHubPrincipal(req);
+    expect(result).toBeNull();
+  });
+
+  test('req が null または undefined の場合は null を返す', () => {
+    expect(extractGitHubPrincipal(null)).toBeNull();
+    expect(extractGitHubPrincipal(undefined)).toBeNull();
+  });
+
+  test('req.body が存在しない場合は null を返す', () => {
+    const req = { headers: {} };
+    const result = extractGitHubPrincipal(req);
+    expect(result).toBeNull();
+  });
+
+  test('req.body が空オブジェクトの場合は null を返す', () => {
+    const req = { body: {} };
+    const result = extractGitHubPrincipal(req);
+    expect(result).toBeNull();
   });
 });
