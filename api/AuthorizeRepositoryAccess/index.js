@@ -13,7 +13,7 @@ module.exports = async function (context, req) {
     const env = process.env;
     const repoOwner = (env.GITHUB_REPO_OWNER || '').trim();
     const repoName = (env.GITHUB_REPO_NAME || '').trim();
-
+    
     if (!repoOwner || !repoName) {
       log.error('Missing required GitHub repository configuration: GITHUB_REPO_OWNER, GITHUB_REPO_NAME');
       context.res = { status: 200, headers: { 'Content-Type': 'application/json' }, body: { roles: [] } };
@@ -25,26 +25,45 @@ module.exports = async function (context, req) {
     const timeoutMs = parseInt(env.GITHUB_API_TIMEOUT_MS, 10) > 0 ? parseInt(env.GITHUB_API_TIMEOUT_MS, 10) : 5000;
     const userAgent = (env.GITHUB_API_USER_AGENT || '').trim() || 'swa-github-repo-auth';
 
-    // === プリンシパル抽出（ドキュメント推奨のヘッダーのみ利用） ===
+    // === プリンシパル抽出 ===
     let principal = null;
-    const headers = req.headers || {};
-    const headerValue = headers['x-ms-client-principal'] || headers['X-MS-CLIENT-PRINCIPAL'];
+    
+    // リクエストボディから取得を試行
+    if (req.body && typeof req.body === 'object') {
+      const candidate = req.body.clientPrincipal && typeof req.body.clientPrincipal === 'object' 
+        ? req.body.clientPrincipal 
+        : req.body;
+      
+      if (candidate.identityProvider === 'github') {
+        principal = {
+          userId: candidate.userId || candidate.user_id || null,
+          userDetails: candidate.userDetails || candidate.user_details || null,
+          accessToken: candidate.accessToken || candidate.access_token || null
+        };
+      }
+    }
 
-    if (headerValue && typeof headerValue === 'string') {
-      try {
-        const decoded = Buffer.from(headerValue, 'base64').toString('utf8');
-        const decodedHeader = JSON.parse(decoded);
-        const candidate = decodedHeader.clientPrincipal || decodedHeader;
-
-        if (candidate.identityProvider === 'github') {
-          principal = {
-            userId: candidate.userId || candidate.user_id || null,
-            userDetails: candidate.userDetails || candidate.user_details || null,
-            accessToken: candidate.accessToken || candidate.access_token || null
-          };
+    // ヘッダーから取得を試行(ボディで見つからなかった場合)
+    if (!principal) {
+      const headers = req.headers || {};
+      const headerValue = headers['x-ms-client-principal'] || headers['X-MS-CLIENT-PRINCIPAL'];
+      
+      if (headerValue && typeof headerValue === 'string') {
+        try {
+          const decoded = Buffer.from(headerValue, 'base64').toString('utf8');
+          const decodedHeader = JSON.parse(decoded);
+          const candidate = decodedHeader.clientPrincipal || decodedHeader;
+          
+          if (candidate.identityProvider === 'github') {
+            principal = {
+              userId: candidate.userId || candidate.user_id || null,
+              userDetails: candidate.userDetails || candidate.user_details || null,
+              accessToken: candidate.accessToken || candidate.access_token || null
+            };
+          }
+        } catch (error) {
+          // デコードエラーは無視
         }
-      } catch (error) {
-        // デコードエラーは無視
       }
     }
 
