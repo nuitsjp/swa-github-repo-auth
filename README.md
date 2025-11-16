@@ -163,5 +163,5 @@ sequenceDiagram
 
 ### ログアウト動作
 
-- `docs/signed-out/index.html` は匿名アクセスを許可したサインアウト用ページで、`/.auth/logout?post_logout_redirect_uri=/signed-out/` から誘導されます。
-- GitHubのセッションは別管理のため、SWA側でログアウト後すぐ `/` を再訪すると 401 -> `/ .auth/login/github` の順で再ログインが走ります。ログアウト状態を維持したい場合はサインアウトページで留まり、必要に応じて GitHub 側もログアウトしてください。
+- `docs/signed-out/index.html` は匿名アクセスを許可したサインアウト用ページで、`/.auth/logout?post_logout_redirect_uri=/signed-out/` から誘導されます。また `staticwebapp.config.json` の `401` レスポンスを `/signed-out/` にリダイレクトするよう上書きしているため、未ログインで `/` へアクセスした場合もこのページに誘導され、ユーザー自身の操作で再ログインを始めます。
+- GitHubのセッションは別管理のため、`GitHubで再ログイン` ボタンを押した際は GitHub 側のログイン状態に応じて再認証が自動的に完了します。完全にサインアウトしたい場合はサインアウトページにある GitHub ログアウトリンクも利用してください。
