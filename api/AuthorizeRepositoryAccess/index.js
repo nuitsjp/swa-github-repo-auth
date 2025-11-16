@@ -3,6 +3,10 @@ const { createRepositoryAuthorizer } = require('../lib/repositoryAuthorizer');
 const { extractGitHubPrincipal } = require('../lib/githubPrincipal');
 const { ensureGitHubRepoConfig } = require('../lib/config');
 
+/**
+ * Azure Functions のロガーを標準化されたインターフェースでラップします。
+ * info、warn、error の各メソッドを提供します。
+ */
 function createLogger(logFn) {
   if (!logFn) {
     return console;
@@ -18,6 +22,10 @@ function createLogger(logFn) {
   };
 }
 
+/**
+ * ロール情報を含む HTTP レスポンスを構築します。
+ * Azure Static Web Apps のロールソース API の形式に従います。
+ */
 function buildResponse(roles) {
   return {
     status: 200,
@@ -28,6 +36,11 @@ function buildResponse(roles) {
   };
 }
 
+/**
+ * リポジトリアクセス認可ハンドラーを作成します。
+ * GitHub プリンシパルを抽出し、リポジトリへのアクセス権を検証して、
+ * 適切なロールを割り当てます。
+ */
 function createAuthorizeRepositoryAccessHandler({
   authorizer,
   principalExtractor = extractGitHubPrincipal
@@ -36,12 +49,17 @@ function createAuthorizeRepositoryAccessHandler({
     throw new Error('An authorizer with an authorize method must be provided.');
   }
 
+  /**
+   * Azure Functions のハンドラー関数。
+   * リクエストから GitHub プリンシパルを抽出し、認可を実行します。
+   */
   return async function authorizeRepositoryAccess(context, req) {
     const logger = createLogger(context.log);
 
     try {
       const principal = principalExtractor(req);
 
+      // GitHub 以外の ID プロバイダーまたは未認証の場合
       if (!principal) {
         logger.info('Non-GitHub identity detected, assigning anonymous role.');
         context.res = buildResponse([]);
@@ -54,6 +72,7 @@ function createAuthorizeRepositoryAccessHandler({
         return;
       }
 
+      // リポジトリアクセス権の検証とロールの割り当て
       const hasAccess = await authorizer.authorize(principal.accessToken, logger);
       const roles = hasAccess ? ['authorized'] : [];
 
@@ -71,7 +90,12 @@ function createAuthorizeRepositoryAccessHandler({
   };
 }
 
+// モジュール初期化時に設定を読み込み、リポジトリ認可オブジェクトを作成
+// 環境変数から GitHub リポジトリの設定を取得し、必須項目の存在を検証
 const repoConfig = ensureGitHubRepoConfig(process.env);
+
+// リポジトリアクセス権を検証するための認可オブジェクトを生成
+// axios を HTTP クライアントとして使用し、GitHub API へのリクエストを実行
 const repositoryAuthorizer = createRepositoryAuthorizer({
   repoOwner: repoConfig.repoOwner,
   repoName: repoConfig.repoName,
@@ -82,9 +106,13 @@ const repositoryAuthorizer = createRepositoryAuthorizer({
   userAgent: repoConfig.userAgent
 });
 
+// Azure Functions のデフォルトエクスポートとして認可ハンドラーを公開
+// このハンドラーは Azure Static Web Apps のロールソース API として機能
 module.exports = createAuthorizeRepositoryAccessHandler({
   authorizer: repositoryAuthorizer
 });
+
+// テスト用に各関数を個別にエクスポート
 module.exports.createAuthorizeRepositoryAccessHandler =
   createAuthorizeRepositoryAccessHandler;
 module.exports.createLogger = createLogger;

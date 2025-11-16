@@ -1,6 +1,12 @@
 # Azure Static Web Apps - GitHub認証サンプル
 
-GitHubリポジトリのドキュメントをAzure Static Web Apps(SWA)で公開し、対象リポジトリのread権限を持つユーザーだけに閲覧を許可するためのサンプルです。
+ソフトウェア開発時に利用するドキュメントを、Markdownで記述する場合、静的サイトジェネレーターを利用してHTMLに変換し、いずれかの方法でホスティングして提供したい場合があります。
+
+第一候補となるのはGitHub Pagesですが、たとえばAzure Static Web Apps (SWA)を利用することで、Pull Requestごとにステージング環境でプレビューできるなど、より柔軟な運用が可能です。
+
+ただ、SWAでホスティングしたサイトを、特定のGitHubリポジトリに対するread権限を持つユーザーだけに閲覧を許可したい場合、SWAの組み込み認証機能だけでは実現できません。
+
+ここでは、GitHub OAuthを利用して認可するカスタム認証の実装例を共有します。
 
 ## 目的
 
@@ -20,6 +26,10 @@ GitHubリポジトリのドキュメントをAzure Static Web Apps(SWA)で公開
 - Azure CLI
 - GitHub CLI
 - PowerShell 7+
+
+## 参考リポジトリー
+
+- [nuitsjp/swa-github-repo-auth](https://github.com/nuitsjp/swa-github-repo-auth)
 
 ## 構築手順
 
