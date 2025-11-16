@@ -194,4 +194,58 @@ describe('createLogger', () => {
     expect(info).toHaveBeenCalledWith('error');
     expect(info).toHaveBeenCalledWith('info');
   });
+
+  it('uses provided warn/error when log is function with handlers', () => {
+    const info = jest.fn();
+    const warn = jest.fn();
+    const error = jest.fn();
+
+    function logFn(...args) {
+      return info(...args);
+    }
+
+    logFn.info = info;
+    logFn.warn = warn;
+    logFn.error = error;
+
+    const logger = createLogger(logFn);
+
+    logger.warn('warn');
+    logger.error('error');
+    logger.info('info');
+
+    expect(warn).toHaveBeenCalledWith('warn');
+    expect(error).toHaveBeenCalledWith('error');
+    expect(info).toHaveBeenCalledWith('info');
+  });
+
+  it('handles plain logger objects without warn/error', () => {
+    const logger = createLogger({ info: jest.fn() });
+
+    logger.warn('warn');
+    logger.error('error');
+
+    expect(logger.info).toHaveBeenCalledWith('warn');
+    expect(logger.info).toHaveBeenCalledWith('error');
+  });
+
+  it('returns no-op functions when logger shape is unsupported', () => {
+    const logger = createLogger({});
+
+    expect(() => logger.info('noop')).not.toThrow();
+    expect(() => logger.warn('noop')).not.toThrow();
+  });
+
+  it('uses warn/error when logger object provides them without info', () => {
+    const warn = jest.fn();
+    const error = jest.fn();
+    const logger = createLogger({ warn, error });
+
+    logger.warn('warn');
+    logger.error('error');
+    logger.info('info');
+
+    expect(warn).toHaveBeenCalledWith('warn');
+    expect(error).toHaveBeenCalledWith('error');
+  });
 });

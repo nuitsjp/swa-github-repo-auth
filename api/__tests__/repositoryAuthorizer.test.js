@@ -146,6 +146,40 @@ describe('createRepositoryAuthorizer', () => {
     );
   });
 
+  it('falls back to info when warn logger is missing', async () => {
+    const authorizer = createRepositoryAuthorizer({ repoOwner, repoName, httpClient });
+    const fallbackLogger = { info: jest.fn() };
+
+    await authorizer.authorize('', fallbackLogger);
+
+    expect(fallbackLogger.info).toHaveBeenCalledWith(
+      'No access token supplied to repository authorizer.'
+    );
+  });
+
+  it('logs unexpected errors through info fallback when error missing', async () => {
+    httpClient.get.mockRejectedValue(new Error('down'));
+    const authorizer = createRepositoryAuthorizer({ repoOwner, repoName, httpClient });
+    const fallbackLogger = { info: jest.fn() };
+
+    const result = await authorizer.authorize('token', fallbackLogger);
+
+    expect(result).toBe(false);
+    expect(fallbackLogger.info).toHaveBeenCalledWith(
+      'GitHub API error while authorizing repository access:',
+      'down'
+    );
+  });
+
+  it('uses no-op logger when logger is not supplied', async () => {
+    const authorizer = createRepositoryAuthorizer({ repoOwner, repoName, httpClient });
+
+    const result = await authorizer.authorize('');
+
+    expect(result).toBe(false);
+    expect(httpClient.get).not.toHaveBeenCalled();
+  });
+
   it('returns false and logs warning when access token missing', async () => {
     const authorizer = createRepositoryAuthorizer({ repoOwner, repoName, httpClient });
 

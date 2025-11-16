@@ -63,4 +63,14 @@ describe('config helpers', () => {
       'Environment bag must be provided when loading GitHub repo configuration.'
     );
   });
+
+  it('ensures config when required values exist', () => {
+    const config = ensureGitHubRepoConfig({
+      GITHUB_REPO_OWNER: 'octocat',
+      GITHUB_REPO_NAME: 'demo'
+    });
+
+    expect(config.repoOwner).toBe('octocat');
+    expect(config.repoName).toBe('demo');
+  });
 });
