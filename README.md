@@ -96,11 +96,17 @@ sequenceDiagram
     RoleSrc->>Authorizer: authorize(accessToken, logger)
     Authorizer->>GH: GET https://api.github.com/repos/{owner}/{repo}
     GH-->>Authorizer: 200 / 401 / 403 / 404
-    Authorizer-->>RoleSrc: true / false
-
-    RoleSrc-->>SWA: 200 {roles:['authorized'] or []}
-    SWA-->>Browser: authorizedなら静的コンテンツ返却、否認時は401/403処理
+    alt GitHubのリポジトリアクセス権あり (200)
+        Authorizer-->>RoleSrc: true
+        RoleSrc-->>SWA: 200 {roles:['authorized']}
+        SWA-->>Browser: 静的コンテンツ
+    else 権限なし/失敗 (401/403/404/エラー)
+        Authorizer-->>RoleSrc: false
+        RoleSrc-->>SWA: 200 {roles:[]}
+        SWA-->>Browser: 401/403 でアクセス拒否
+    end
 ```
 
 - `extractGitHubPrincipal` が GitHub 以外のプリンシパルやトークン欠如を検知した場合は即座に匿名相当 (`[]`) を返し、SWA で 401/403 として扱われます。
 - `repositoryAuthorizer.authorize` は GitHub REST API の `/repos/{owner}/{repo}` を呼び出し、HTTP 200 なら `['authorized']` を返却し、401/403/404 などは `[]` にフォールバックします。
+- ノート: `api/lib/githubPrincipal.js` の `extractGitHubPrincipal` は `req.body.clientPrincipal` から GitHub プロバイダーの情報だけを抽出し、`userId`/`userDetails`/`accessToken` を正規化して返します。GitHub 以外の ID やトークン欠如時は `null` を返して以降の処理が匿名扱いになるようガードしています。
