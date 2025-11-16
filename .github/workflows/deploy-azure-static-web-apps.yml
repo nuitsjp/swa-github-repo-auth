@@ -19,18 +19,11 @@ on:
       - 'staticwebapp.config.json'
       - '.github/workflows/deploy-azure-static-web-apps.yml'
 
-permissions:
-  contents: read
-  pages: write
-  id-token: write
-
 jobs:
   build_and_deploy_job:
     if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.action != 'closed')
     runs-on: ubuntu-latest
     name: Build and Deploy Job
-    environment:
-      name: github-pages
     steps:
       - uses: actions/checkout@v5
         with:
@@ -50,15 +43,6 @@ jobs:
           config_file_location: "." # Location of staticwebapp.config.json
           output_location: "" # Built app content directory - optional
           ###### End of Repository/Build Configurations ######
-      - name: Upload Pages Artifact
-        if: github.event_name == 'push'
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: docs
-      - name: Deploy to GitHub Pages
-        if: github.event_name == 'push'
-        id: deploy_pages
-        uses: actions/deploy-pages@v4
 
   close_pull_request_job:
     if: github.event_name == 'pull_request' && github.event.action == 'closed'
