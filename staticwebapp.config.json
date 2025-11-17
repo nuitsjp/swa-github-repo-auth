@@ -1,59 +1,16 @@
 {
-  "$schema": "https://json.schemastore.org/staticwebapp.config.json",
-  "auth": {
-    "rolesSource": "/api/AuthorizeRepositoryAccess",
-    "identityProviders": {
-      "github": {
-        "registration": {
-          "clientIdSettingName": "GITHUB_CLIENT_ID",
-          "clientSecretSettingName": "GITHUB_CLIENT_SECRET"
-        },
-        "login": {
-          "scopes": ["repo"]
-        }
-      }
-    }
-  },
   "routes": [
     {
-      "route": "/.auth/login/github",
-      "allowedRoles": ["anonymous", "authorized"]
-    },
-    {
-      "route": "/.auth/logout",
-      "allowedRoles": ["anonymous", "authorized"]
-    },
-    {
-      "route": "/.auth/*",
-      "allowedRoles": ["authorized"]
-    },
-    {
-      "route": "/signed-out/*",
-      "allowedRoles": ["anonymous", "authorized"]
-    },
-    {
-      "route": "/*",
-      "allowedRoles": ["authorized"]
+      "route": "/*"
     }
   ],
+  "navigationFallback": {
+    "rewrite": "/index.html"
+  },
   "responseOverrides": {
     "401": {
-      "statusCode": 302,
-      "redirect": "/.auth/login/github?post_login_redirect_uri=.referrer"
-    },
-    "403": {
-      "statusCode": 403,
-      "statusDescription": "Access Denied",
-      "body": "<!DOCTYPE html><html><head><title>Access Denied</title></head><body><h1>Access Denied</h1><p>You don't have permission to access this repository documentation.</p></body></html>"
+      "redirect": "/.auth/login/aad",
+      "statusCode": 302
     }
-  },
-  "navigationFallback": {
-    "rewrite": "/index.html",
-    "exclude": ["/api/*", "/.auth/*", "/images/*", "*.{css,js,json}"]
-  },
-  "globalHeaders": {
-    "X-Frame-Options": "SAMEORIGIN",
-    "X-Content-Type-Options": "nosniff",
-    "Strict-Transport-Security": "max-age=31536000"
   }
 }
