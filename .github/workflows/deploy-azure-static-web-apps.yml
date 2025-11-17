@@ -19,6 +19,10 @@ on:
       - 'staticwebapp.config.json'
       - '.github/workflows/deploy-azure-static-web-apps.yml'
 
+permissions:
+  contents: read
+  pull-requests: write
+
 jobs:
   build_and_deploy_job:
     if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.action != 'closed')
