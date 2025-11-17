@@ -60,6 +60,50 @@ describe('extractGitHubPrincipal', () => {
     });
   });
 
+  test('x-ms-client-principal ヘッダーから GitHub プリンシパルを抽出', () => {
+    const headerPrincipal = {
+      identityProvider: 'github',
+      userId: 'header-user',
+      userDetails: 'headeruser',
+      access_token: 'gho_headertoken'
+    };
+
+    const req = {
+      headers: {
+        'x-ms-client-principal': Buffer.from(JSON.stringify(headerPrincipal)).toString('base64')
+      }
+    };
+
+    const result = extractGitHubPrincipal(req);
+    expect(result).toEqual({
+      identityProvider: 'github',
+      userId: 'header-user',
+      userDetails: 'headeruser',
+      accessToken: 'gho_headertoken'
+    });
+  });
+
+  test('ヘッダーが無効でも body から抽出できる', () => {
+    const req = {
+      headers: {
+        'x-ms-client-principal': '***invalid-base64***'
+      },
+      body: {
+        identityProvider: 'github',
+        userId: 'fallback-user',
+        userDetails: 'fallbackuser'
+      }
+    };
+
+    const result = extractGitHubPrincipal(req);
+    expect(result).toEqual({
+      identityProvider: 'github',
+      userId: 'fallback-user',
+      userDetails: 'fallbackuser',
+      accessToken: null
+    });
+  });
+
   test('GitHub 以外のプロバイダーの場合は null を返す', () => {
     const req = {
       body: {

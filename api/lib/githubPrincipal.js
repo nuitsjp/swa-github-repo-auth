@@ -14,10 +14,31 @@ function normalizePrincipal(candidate) {
   };
 }
 
+function decodePrincipalHeader(req) {
+  const headerValue = req?.headers?.['x-ms-client-principal'];
+  if (!headerValue || typeof headerValue !== 'string') {
+    return null;
+  }
+
+  try {
+    const decoded = Buffer.from(headerValue, 'base64').toString('utf8');
+    return JSON.parse(decoded);
+  } catch (_) {
+    return null;
+  }
+}
+
 function extractGitHubPrincipal(req) {
   // リクエストオブジェクトの存在を検証
   if (!req || typeof req !== 'object') {
     return null;
+  }
+
+  // ヘッダー (x-ms-client-principal) を優先的に読む
+  const headerPrincipal = decodePrincipalHeader(req);
+  const normalizedHeaderPrincipal = normalizePrincipal(headerPrincipal);
+  if (normalizedHeaderPrincipal) {
+    return normalizedHeaderPrincipal;
   }
 
   // req.body から clientPrincipal を抽出
