@@ -49,9 +49,8 @@ Azure Functions側のロジックは npm パッケージ `@swa-github-repo-auth/
 ```bash
 npm install
 
-# Functions 単体で依存関係を再インストールする場合
-cd api
-npm install
+# Functions 単体で依存関係を再インストールする場合（ワークスペース指定）
+npm ci --workspace api --include-workspace-root=false
 ```
 
 Functions プロジェクトでは次のようにハンドラーを取り込みます。
@@ -345,14 +344,13 @@ func start
 ### ユニットテストの実行
 
 ```bash
-cd api
-npm test
+npm test --workspace api
 
 # カバレッジレポート付き
-npm test -- --coverage
+npm test --workspace api -- --coverage --runInBand
 
 # 特定のテストファイルの実行
-npm test -- __tests__/githubPrincipal.test.js
+npm test --workspace api -- __tests__/githubPrincipal.test.js
 ```
 
 ### 統合テスト
