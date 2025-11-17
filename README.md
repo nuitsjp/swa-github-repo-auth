@@ -37,17 +37,17 @@ GitHubリポジトリのread権限を持つユーザーのみにAzure Static Web
 
 ### ソリューション
 
-このリポジトリでは、GitHub OAuthを利用した認可するカスタム認証の実装例を提供します：
-- **PowerShellスクリプト**: SWAリソースの作成とGitHubシークレット/アプリ設定の登録を自動化
-- **カスタム認証実装**: GitHub OAuthを利用した認可ロジック
+このリポジトリでは、GitHub Apps を利用して GitHub リポジトリの権限を確認するカスタム認証の実装例を提供します：
+- **PowerShellスクリプト**: SWAリソースの作成とGitHubアプリ設定の登録を自動化
+- **カスタム認証実装**: GitHub App のインストールトークンでリポジトリ権限を検証
 
 ## ✨ 主な機能
 
-- 🔐 **GitHub OAuth統合**: リポジトリのread権限に基づくアクセス制御
+- 🔐 **GitHub Apps統合**: メタデータ読み取り権限のみでリポジトリへのアクセス可否を判定
 - 🚀 **自動デプロイメント**: GitHub Actionsによる継続的デプロイメント
 - 🔧 **Infrastructure as Code**: PowerShellによるリソース作成の自動化
 - 📊 **ロール管理**: Azure Functionsによる動的ロール判定
-- 🛡️ **セキュリティ**: アクセストークンの安全な管理とスコープ制限
+- 🛡️ **セキュリティ**: GitHub Appのプライベートキーを用いた短期インストールトークンの安全な利用
 
 ## 📋 前提条件
 
@@ -58,7 +58,7 @@ GitHubリポジトリのread権限を持つユーザーのみにAzure Static Web
   - リソース作成権限
   
 - **GitHub アカウント**
-  - OAuth App作成権限
+  - GitHub App作成・インストール権限
   - リポジトリへのアクセス権限
 
 ### 開発環境
@@ -78,23 +78,24 @@ GitHubリポジトリのread権限を持つユーザーのみにAzure Static Web
 ```mermaid
 architecture-beta
     service browser(internet)[Browser]
-    
+
     group swa(cloud)[Azure Static Web Apps]
-    service auth(server)[GitHub OAuth] in swa
+    service auth(server)[SWA GitHub Identity] in swa
     service content(disk)[Static Content] in swa
-    
+
     group functions(server)[Azure Functions]
     service roleFunc(server)[AuthorizeRepositoryAccess] in functions
-    
+
     group github(cloud)[GitHub]
+    service ghapp(lock)[GitHub App Installation] in github
     service ghapi(internet)[REST API] in github
-    
+
     browser:R -- L:auth
     auth:R -- L:content
     content:R -- L:browser
     auth:B -- T:roleFunc
-    roleFunc:R -- L:ghapi
-    ghapi:L -- R:auth
+    roleFunc:R -- L:ghapp
+    ghapp:R -- L:ghapi
 ```
 
 ### 認証フロー
@@ -103,31 +104,34 @@ architecture-beta
 sequenceDiagram
     participant Browser
     participant SWA as Azure Static Web Apps
-    participant Login as SWA GitHub OAuth
+    participant Login as SWA GitHub Identity
     participant RoleSrc as /api/AuthorizeRepositoryAccess
     participant Principal as githubPrincipal.extractGitHubPrincipal
     participant Authorizer as createRepositoryAuthorizer().authorize
+    participant GitHubApp as GitHub App
     participant GH as GitHub REST API
 
     Browser->>SWA: GET /
     SWA-->>Browser: 302 -> /.auth/login/github (authorized でない場合)
     Browser->>Login: /.auth/login/github
-    Login->>GH: OAuth 認証 (scope repo)
-    GH-->>Login: access token
-    Login-->>SWA: clientPrincipal (accessToken付き)
+    Login->>GH: OAuth 認証 (SWA管理のGitHubアプリ)
+    GH-->>Login: ユーザー識別子
+    Login-->>SWA: clientPrincipal (ユーザー情報)
 
     SWA->>RoleSrc: POST clientPrincipal
     RoleSrc->>Principal: githubPrincipal.extractGitHubPrincipal(req)
-    Principal-->>RoleSrc: principal(identity, accessToken)
+    Principal-->>RoleSrc: principal(identity)
 
-    RoleSrc->>Authorizer: repositoryAuthorizer.authorize(accessToken, logger)
-    Authorizer->>GH: GET https://api.github.com/repos/{owner}/{repo}
-    GH-->>Authorizer: 200 / 401 / 403 / 404
-    alt GitHubのリポジトリアクセス権あり (200)
+    RoleSrc->>Authorizer: repositoryAuthorizer.authorize(username, logger)
+    Authorizer->>GitHubApp: POST /app/installations/{installationId}/access_tokens
+    GitHubApp-->>Authorizer: installation token
+    Authorizer->>GH: GET https://api.github.com/repos/{owner}/{repo}/collaborators/{username}/permission
+    GH-->>Authorizer: permission=read/write/none
+    alt GitHubのリポジトリアクセス権あり (permission != none)
         Authorizer-->>RoleSrc: true
         RoleSrc-->>SWA: 200 {roles:['authorized']}
         SWA-->>Browser: 静的コンテンツ
-    else 権限なし/失敗 (401/403/404/エラー)
+    else 権限なし/失敗 (permission == none / エラー)
         Authorizer-->>RoleSrc: false
         RoleSrc-->>SWA: 200 {roles:[]}
         SWA-->>Browser: 401/403 でアクセス拒否
@@ -149,15 +153,17 @@ npm install
 cd ..
 ```
 
-### 2. GitHub OAuth Appの作成
+### 2. GitHub Appの作成
 
-1. GitHubの[Developer settings](https://github.com/settings/developers)にアクセス
-2. "New OAuth App"をクリック
-3. 以下の情報を入力:
-   - **Application name**: `SWA GitHub Auth`
+1. GitHubの[Developer settings](https://github.com/settings/apps)にアクセスし、`New GitHub App` を選択
+2. 以下の情報を入力:
+   - **GitHub App name**: `SWA GitHub Repo Auth` など任意
    - **Homepage URL**: `https://<your-swa-name>.azurestaticapps.net`
-   - **Authorization callback URL**: `https://<your-swa-name>.azurestaticapps.net/.auth/login/github/callback`
-4. Client IDとClient Secretを保存
+   - **Webhook**: オプション（必要なければ無効化）
+   - **Repository permissions**: `Metadata` を `Read-only`
+   - **Organization permissions**: すべて `No access`
+3. アプリを対象リポジトリにインストールし、URL末尾の `installations/<ID>` から **Installation ID** を控える
+4. **Generate a private key** をクリックして秘密鍵 (PEM) をダウンロードし、安全に保管
 
 ### 3. Azure リソースの作成
 
@@ -177,8 +183,9 @@ cd scripts
 | `-ResourceGroupLocation` | リージョン | `japaneast` |
 | `-SubscriptionId` | サブスクリプションID | 対話選択 |
 | `-Sku` | SKU (Free/Standard) | `Standard` |
-| `-ClientId` | GitHub OAuth Client ID | 対話入力 |
-| `-ClientSecret` | GitHub OAuth Client Secret | セキュア入力 |
+| `-GitHubAppId` | GitHub App ID | 対話入力 |
+| `-GitHubAppInstallationId` | GitHub App Installation ID | 対話入力 |
+| `-GitHubAppPrivateKey` | GitHub App Private Key (PEM文字列 or ファイルパス) | セキュア入力 |
 
 #### カスタムパラメータでの実行例
 
@@ -188,8 +195,9 @@ cd scripts
   -Name "stapp-my-docs-prod" `
   -ResourceGroupLocation "japaneast" `
   -Sku "Standard" `
-  -ClientId "<YOUR_CLIENT_ID>" `
-  -ClientSecret "<YOUR_CLIENT_SECRET>"
+  -GitHubAppId "<YOUR_APP_ID>" `
+  -GitHubAppInstallationId "<YOUR_INSTALLATION_ID>" `
+  -GitHubAppPrivateKey "<PATH_TO_PEM_OR_INLINE>"
 ```
 
 ### 4. 環境変数の設定
@@ -200,10 +208,11 @@ Azure ポータルまたはAzure CLIで以下のアプリ設定を構成:
 az staticwebapp appsettings set \
   --name <your-swa-name> \
   --setting-names \
-    GITHUB_CLIENT_ID='<your-client-id>' \
-    GITHUB_CLIENT_SECRET='<your-client-secret>' \
-    REPO_OWNER='<repository-owner>' \
-    REPO_NAME='<repository-name>'
+    GITHUB_REPO_OWNER='<repository-owner>' \
+    GITHUB_REPO_NAME='<repository-name>' \
+    GITHUB_APP_ID='<your-app-id>' \
+    GITHUB_APP_INSTALLATION_ID='<your-installation-id>' \
+    GITHUB_APP_PRIVATE_KEY='<pem-string-with-\n>'
 ```
 
 ## 📐 設計詳細
@@ -235,7 +244,7 @@ swa-github-repo-auth/
 
 #### 1. AuthorizeRepositoryAccess Function
 
-- **役割**: GitHubアクセストークンを使用してリポジトリアクセス権限を検証
+- **役割**: GitHubユーザー名を受け取り、GitHub App経由でリポジトリ権限を検証
 - **エンドポイント**: `/api/AuthorizeRepositoryAccess`
 - **入力**: SWAからのclientPrincipal
 - **出力**: ロール配列 (`['authorized']` または `[]`)
@@ -246,17 +255,16 @@ swa-github-repo-auth/
 - **主要メソッド**: `extractGitHubPrincipal(req)`
 - **処理内容**:
   - GitHubプロバイダーの検証
-  - アクセストークンの存在確認
-  - ユーザー情報の正規化
+  - ユーザーID/ユーザー名の正規化
 
 #### 3. repositoryAuthorizer モジュール
 
-- **役割**: GitHub APIを使用したリポジトリアクセス権限の検証
-- **主要メソッド**: `authorize(accessToken, logger)`
+- **役割**: GitHub App のインストールトークンを取得し、リポジトリアクセス権限を検証
+- **主要メソッド**: `authorize(username, logger)`
 - **処理内容**:
-  - GitHub REST APIへのリクエスト
-  - HTTPステータスコードの評価
-  - エラーハンドリング
+  - GitHub App JWT 生成と Installation Token のキャッシュ
+  - `GET /repos/{owner}/{repo}/collaborators/{username}/permission` の呼び出し
+  - HTTPステータスコードおよび permission フィールドの評価
 
 ### 設定ファイル
 
@@ -267,12 +275,7 @@ swa-github-repo-auth/
   "auth": {
     "rolesSource": "/api/AuthorizeRepositoryAccess",
     "identityProviders": {
-      "github": {
-        "registration": {
-          "clientIdSettingName": "GITHUB_CLIENT_ID",
-          "clientSecretSettingName": "GITHUB_CLIENT_SECRET_APP_SETTING_NAME"
-        }
-      }
+      "github": {}
     }
   },
   "routes": [
@@ -311,10 +314,11 @@ func start
   "IsEncrypted": false,
   "Values": {
     "FUNCTIONS_WORKER_RUNTIME": "node",
-    "GITHUB_CLIENT_ID": "<your-client-id>",
-    "GITHUB_CLIENT_SECRET": "<your-client-secret>",
-    "REPO_OWNER": "<repo-owner>",
-    "REPO_NAME": "<repo-name>"
+    "GITHUB_REPO_OWNER": "<repo-owner>",
+    "GITHUB_REPO_NAME": "<repo-name>",
+    "GITHUB_APP_ID": "<app-id>",
+    "GITHUB_APP_INSTALLATION_ID": "<installation-id>",
+    "GITHUB_APP_PRIVATE_KEY": "<pem-string-with-\\n>"
   }
 }
 ```
@@ -353,8 +357,8 @@ npm test -- __tests__/githubPrincipal.test.js
 ### E2Eテストのチェックリスト
 
 - [ ] 未認証ユーザーのリダイレクト
-- [ ] GitHub OAuth認証フロー
-- [ ] リポジトリアクセス権限の検証
+- [ ] SWA GitHub ログインフロー
+- [ ] GitHub App を用いたリポジトリアクセス権限の検証
 - [ ] ロールベースのアクセス制御
 - [ ] サインアウト機能
 
@@ -395,12 +399,13 @@ swa deploy \
 
 #### 1. 認証後もアクセスが拒否される
 
-**原因**: リポジトリへのread権限がない、またはトークンのスコープが不足
+**原因**: GitHub App が対象リポジトリにインストールされていない、または Installation ID / アプリ設定が誤っている
 
 **解決策**:
-- GitHub OAuth Appのスコープに `repo` が含まれていることを確認
-- ユーザーがリポジトリへのアクセス権限を持っていることを確認
-- Azure Functions のログで権限チェックの結果を確認
+- GitHub App の Repository permissions -> Metadata が Read-only になっているか確認
+- Static Web Apps のアプリ設定に `GITHUB_APP_ID` / `GITHUB_APP_INSTALLATION_ID` / `GITHUB_APP_PRIVATE_KEY` が正しく登録されているか確認
+- ユーザーが対象リポジトリのメンバーまたはコラボレーターであるかを確認
+- Azure Functions のログで `GitHub permission check result` の出力を確認
 
 #### 2. ローカル環境で認証が機能しない
 
@@ -453,7 +458,7 @@ az monitor app-insights query \
 - [Azure Static Web Apps Documentation](https://docs.microsoft.com/azure/static-web-apps/)
 - [Azure Static Web Apps Authentication](https://docs.microsoft.com/azure/static-web-apps/authentication)
 - [Azure Functions JavaScript Developer Guide](https://docs.microsoft.com/azure/azure-functions/functions-reference-node)
-- [GitHub OAuth Apps Documentation](https://docs.github.com/developers/apps/building-oauth-apps)
+- [GitHub Apps Documentation](https://docs.github.com/apps)
 
 ### 関連リポジトリ
 

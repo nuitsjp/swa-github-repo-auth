@@ -6,7 +6,7 @@ Azure Static Web App のプロビジョニングと GitHub 関連設定をまと
 
 .DESCRIPTION
 サブスクリプションと GitHub リポジトリのコンテキストを検出し、必要に応じてリソースグループや Static Web App を新規作成または再作成します。
-新規作成時はデプロイトークンを GitHub シークレットに登録し、最後に GitHub OAuth App 情報とリポジトリ情報をアプリ設定へ投入します。
+新規作成時はデプロイトークンを GitHub シークレットに登録し、最後に GitHub App 情報とリポジトリ情報をアプリ設定へ投入します。
 
 .PARAMETER ResourceGroupName
 リソースグループ名を上書きします（デフォルト: rg-<repo>-prod）。
@@ -23,11 +23,14 @@ Static Web App 名を上書きします（デフォルト: stapp-<repo>-prod）�
 .PARAMETER Sku
 Static Web App の SKU（Free、Standard）。
 
-.PARAMETER ClientId
-GitHub OAuth App Client ID。未指定時は後段で対話プロンプトが表示されます。
+.PARAMETER GitHubAppId
+GitHub App ID。未指定時は後段で対話プロンプトが表示されます。
 
-.PARAMETER ClientSecret
-GitHub OAuth App Client Secret。未指定時は後段で安全な対話プロンプトが表示されます。
+.PARAMETER GitHubAppInstallationId
+GitHub App の Installation ID。未指定時は後段で対話プロンプトが表示されます。
+
+.PARAMETER GitHubAppPrivateKey
+GitHub App のプライベートキー。`-----BEGIN PRIVATE KEY-----` を含む PEM 文字列、または PEM ファイルパスを指定できます。
 
 .EXAMPLE
 pwsh ./scripts/New-SwaResources.ps1 --client-id <id> --client-secret <secret>
@@ -47,8 +50,9 @@ param(
     [string]$SubscriptionId,
     [ValidateSet('Free', 'Standard')]
     [string]$Sku = 'Standard',
-    [string]$ClientId,
-    [string]$ClientSecret
+    [string]$GitHubAppId,
+    [string]$GitHubAppInstallationId,
+    [string]$GitHubAppPrivateKey
 )
 
 Set-StrictMode -Version Latest
@@ -72,20 +76,24 @@ function Main {
 
     $activeResourceGroup = $provisionResult.ResourceGroupName
 
-    Show-GitHubOAuthInstructions `
+    Show-GitHubAppInstructions `
         -Name $provisionContext.StaticWebAppName `
         -ResourceGroup $activeResourceGroup `
         -SubscriptionId $provisionContext.SubscriptionId
 
-    $credentials = Resolve-ClientCredentials -ClientId $ClientId -ClientSecret $ClientSecret
+    $githubAppSettings = Resolve-GitHubAppSettings `
+        -GitHubAppId $GitHubAppId `
+        -GitHubAppInstallationId $GitHubAppInstallationId `
+        -GitHubAppPrivateKey $GitHubAppPrivateKey
     Set-AppSettings `
         -Name $provisionContext.StaticWebAppName `
         -ResourceGroup $activeResourceGroup `
         -SubscriptionId $provisionContext.SubscriptionId `
-        -ClientId $credentials.ClientId `
-        -ClientSecret $credentials.ClientSecret `
         -RepoOwner $provisionContext.RepoOwner `
-        -RepoName $provisionContext.RepoName
+        -RepoName $provisionContext.RepoName `
+        -GitHubAppId $githubAppSettings.AppId `
+        -GitHubAppInstallationId $githubAppSettings.InstallationId `
+        -GitHubAppPrivateKey $githubAppSettings.PrivateKey
 }
 
 
@@ -271,7 +279,7 @@ function Get-DeploymentToken {
     return $token.Trim()
 }
 
-function Show-GitHubOAuthInstructions {
+function Show-GitHubAppInstructions {
     param(
         [string]$Name,
         [string]$ResourceGroup,
@@ -287,13 +295,14 @@ function Show-GitHubOAuthInstructions {
     $homepageUrl = "https://$hostname/"
     $callbackUrl = "https://$hostname/.auth/login/github/callback"
 
-    Write-Host "`n[TODO] GitHub OAuth App の設定" -ForegroundColor Yellow
+    Write-Host "`n[TODO] GitHub App の設定" -ForegroundColor Yellow
     Write-Host "  ホームページ URL: $homepageUrl"
-    Write-Host "  認証コールバック URL: $callbackUrl"
+    Write-Host "  推奨 Webhook URL: $callbackUrl (任意)"
     Write-Host "  次の手順:" -ForegroundColor Yellow
-    Write-Host '    1. GitHub > Settings > Developer settings > OAuth Apps > New OAuth App を開く'
-    Write-Host '    2. 上記 URL を入力してアプリを作成し、Client ID/Secret を保管'
-    Write-Host '    3. scripts/New-SwaResources.ps1 で GITHUB_CLIENT_ID / GITHUB_CLIENT_SECRET などを設定'
+    Write-Host '    1. GitHub > Settings > Developer settings > GitHub Apps > New GitHub App を開く'
+    Write-Host '    2. Repository permissions -> Metadata を Read-only に設定'
+    Write-Host '    3. 対象リポジトリにアプリをインストールし、Installation ID を控える'
+    Write-Host '    4. Private key をダウンロードして scripts/New-SwaResources.ps1 の入力に指定'
 }
 
 function Confirm-StaticWebAppReuse {
@@ -430,18 +439,37 @@ function Resolve-ParameterOrPrompt {
     return $input.Trim()
 }
 
-function Resolve-ClientCredentials {
+function Resolve-GitHubAppPrivateKey {
+    param([string]$Value)
+
+    $resolved = Resolve-ParameterOrPrompt -Value $Value -PromptMessage 'GitHub App Private Key (PEM 文字列 or ファイルパス)'
+
+    if ([string]::IsNullOrWhiteSpace($resolved)) {
+        throw 'GitHub App Private Key が必要です。'
+    }
+
+    if (Test-Path -LiteralPath $resolved) {
+        return Get-Content -LiteralPath $resolved -Raw
+    }
+
+    return $resolved
+}
+
+function Resolve-GitHubAppSettings {
     param(
-        [string]$ClientId,
-        [string]$ClientSecret
+        [string]$GitHubAppId,
+        [string]$GitHubAppInstallationId,
+        [string]$GitHubAppPrivateKey
     )
 
-    $resolvedClientId = Resolve-ParameterOrPrompt -Value $ClientId -PromptMessage 'GitHub OAuth App Client ID'
-    $resolvedClientSecret = Resolve-ParameterOrPrompt -Value $ClientSecret -PromptMessage 'GitHub OAuth App Client Secret' -AsSecureString
+    $resolvedAppId = Resolve-ParameterOrPrompt -Value $GitHubAppId -PromptMessage 'GitHub App ID'
+    $resolvedInstallationId = Resolve-ParameterOrPrompt -Value $GitHubAppInstallationId -PromptMessage 'GitHub App Installation ID'
+    $resolvedPrivateKey = Resolve-GitHubAppPrivateKey -Value $GitHubAppPrivateKey
 
     return [PSCustomObject]@{
-        ClientId     = $resolvedClientId
-        ClientSecret = $resolvedClientSecret
+        AppId           = $resolvedAppId
+        InstallationId  = $resolvedInstallationId
+        PrivateKey      = $resolvedPrivateKey
     }
 }
 
@@ -450,17 +478,20 @@ function Set-AppSettings {
         [string]$Name,
         [string]$ResourceGroup,
         [string]$SubscriptionId,
-        [string]$ClientId,
-        [string]$ClientSecret,
         [string]$RepoOwner,
-        [string]$RepoName
+        [string]$RepoName,
+        [string]$GitHubAppId,
+        [string]$GitHubAppInstallationId,
+        [string]$GitHubAppPrivateKey
     )
 
+    $escapedPrivateKey = $GitHubAppPrivateKey -replace "`r", '' -replace "`n", '\n'
     $settingNames = @(
-        "GITHUB_CLIENT_ID=$ClientId"
-        "GITHUB_CLIENT_SECRET=$ClientSecret"
         "GITHUB_REPO_OWNER=$RepoOwner"
         "GITHUB_REPO_NAME=$RepoName"
+        "GITHUB_APP_ID=$GitHubAppId"
+        "GITHUB_APP_INSTALLATION_ID=$GitHubAppInstallationId"
+        "GITHUB_APP_PRIVATE_KEY=$escapedPrivateKey"
     )
 
     Write-Info 'アプリ設定を更新しています...'

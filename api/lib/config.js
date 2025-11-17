@@ -20,6 +20,9 @@ function loadGitHubRepoConfig(env) {
   const repoName = sanitize(env.GITHUB_REPO_NAME);
   const apiBaseUrl = sanitize(env.GITHUB_API_BASE_URL) || DEFAULT_API_BASE_URL;
   const apiVersion = sanitize(env.GITHUB_API_VERSION) || DEFAULT_API_VERSION;
+  const appId = sanitize(env.GITHUB_APP_ID);
+  const installationId = sanitize(env.GITHUB_APP_INSTALLATION_ID);
+  const privateKey = sanitize(env.GITHUB_APP_PRIVATE_KEY);
 
   // タイムアウト値を整数として解析し、有効な値かチェック
   const timeoutFromEnv = parseInt(env.GITHUB_API_TIMEOUT_MS, 10);
@@ -33,6 +36,9 @@ function loadGitHubRepoConfig(env) {
   const missing = [];
   if (!repoOwner) missing.push('GITHUB_REPO_OWNER');
   if (!repoName) missing.push('GITHUB_REPO_NAME');
+  if (!appId) missing.push('GITHUB_APP_ID');
+  if (!installationId) missing.push('GITHUB_APP_INSTALLATION_ID');
+  if (!privateKey) missing.push('GITHUB_APP_PRIVATE_KEY');
 
   // 設定オブジェクトを返す（欠落フィールドリストを含む）
   return {
@@ -42,6 +48,9 @@ function loadGitHubRepoConfig(env) {
     apiVersion,
     requestTimeoutMs,
     userAgent,
+    appId,
+    installationId,
+    privateKey,
     missing
   };
 }

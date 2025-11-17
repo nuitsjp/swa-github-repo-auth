@@ -22,7 +22,7 @@ npx swa start --api-location api --swa-config staticwebapp.config.json
 ```
 
 ## Coding Style & Naming Conventions
-JavaScript/TypeScript in Azure Functions should use 2-space indentation, `const`/`let` over `var`, and camelCase for variables and helpers (mirroring the samples in `README.md`). Function directories must match the exported handler name (e.g., `GetRoles`) to satisfy Azure Static Web Apps discovery. Keep configuration keys uppercase with underscores (`REPO_OWNER`, `GITHUB_CLIENT_SECRET_APP_SETTING_NAME`). Commit JSON with stable key ordering to reduce diff noise.
+JavaScript/TypeScript in Azure Functions should use 2-space indentation, `const`/`let` over `var`, and camelCase for variables and helpers (mirroring the samples in `README.md`). Function directories must match the exported handler name (e.g., `GetRoles`) to satisfy Azure Static Web Apps discovery. Keep configuration keys uppercase with underscores (`GITHUB_REPO_OWNER`, `GITHUB_APP_PRIVATE_KEY`). Commit JSON with stable key ordering to reduce diff noise.
 
 ## Testing Guidelines
 Validation is manual today: after `npx swa start`, hit `/.auth/me` and role-locked routes like `/admin/` to confirm role mapping. When adding automated coverage, keep Jest or Vitest specs under `api/__tests__`, expose the handler for import, and wire `"test": "jest"` in `api/package.json` so `npm test` exercises both success and error paths.

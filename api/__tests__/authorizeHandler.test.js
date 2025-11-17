@@ -48,8 +48,8 @@ describe('createAuthorizeRepositoryAccessHandler', () => {
     expect(authorizer.authorize).not.toHaveBeenCalled();
   });
 
-  it('denies access when GitHub token missing', async () => {
-    // トークン欠如は匿名扱い。
+  it('denies access when GitHub username missing', async () => {
+    // GitHub ユーザー名欠如は匿名扱い。
     const context = buildContext();
     const authorizer = { authorize: jest.fn() };
     const handler = createAuthorizeRepositoryAccessHandler({ authorizer });
@@ -73,14 +73,13 @@ describe('createAuthorizeRepositoryAccessHandler', () => {
       body: {
         clientPrincipal: {
           identityProvider: 'github',
-          accessToken: 'token',
           userDetails: 'octocat'
         }
       }
     });
 
     expect(context.res.body.roles).toEqual(['authorized']);
-    expect(authorizer.authorize).toHaveBeenCalledWith('token', expect.any(Object));
+    expect(authorizer.authorize).toHaveBeenCalledWith('octocat', expect.any(Object));
   });
 
   it('logs user id when details absent', async () => {
@@ -93,7 +92,6 @@ describe('createAuthorizeRepositoryAccessHandler', () => {
       body: {
         clientPrincipal: {
           identityProvider: 'github',
-          accessToken: 'token',
           userId: 'id-only'
         }
       }
@@ -103,8 +101,8 @@ describe('createAuthorizeRepositoryAccessHandler', () => {
     expect(infoLog).toBeTruthy();
   });
 
-  it('falls back to unknown when id and details missing', async () => {
-    // 識別子が無ければ unknown をログする。
+  it('logs warning when id and details missing', async () => {
+    // 識別子が無ければ警告する。
     const context = buildContext();
     const authorizer = { authorize: jest.fn().mockResolvedValue(true) };
     const handler = createAuthorizeRepositoryAccessHandler({ authorizer });
@@ -112,14 +110,15 @@ describe('createAuthorizeRepositoryAccessHandler', () => {
     await handler(context, {
       body: {
         clientPrincipal: {
-          identityProvider: 'github',
-          accessToken: 'token'
+          identityProvider: 'github'
         }
       }
     });
 
-    const infoLog = context.logs.find((log) => log.message.includes('unknown'));
-    expect(infoLog).toBeTruthy();
+    const warnLog = context.logs.find((log) =>
+      log.level === 'warn' && log.message.includes('missing username')
+    );
+    expect(warnLog).toBeTruthy();
   });
 
   it('returns anonymous role when authorizer denies access', async () => {
@@ -132,7 +131,6 @@ describe('createAuthorizeRepositoryAccessHandler', () => {
       body: {
         clientPrincipal: {
           identityProvider: 'github',
-          accessToken: 'token',
           userDetails: 'octocat'
         }
       }
@@ -153,7 +151,7 @@ describe('createAuthorizeRepositoryAccessHandler', () => {
       body: {
         clientPrincipal: {
           identityProvider: 'github',
-          accessToken: 'token'
+          userDetails: 'octocat'
         }
       }
     });
@@ -174,7 +172,7 @@ describe('createAuthorizeRepositoryAccessHandler', () => {
       body: {
         clientPrincipal: {
           identityProvider: 'github',
-          accessToken: 'token'
+          userDetails: 'octocat'
         }
       }
     });

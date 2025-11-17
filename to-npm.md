@@ -276,26 +276,15 @@ function createMultiRepoHandler(repos, options = {}) {
 function generateStaticWebAppConfig(options = {}) {
   const {
     protectedRoutes = ['/*'],
-    publicRoutes = ['/signed-out/*'],
-    clientIdSettingName = 'GITHUB_CLIENT_ID',
-    clientSecretSettingName = 'GITHUB_CLIENT_SECRET',
-    scopes = ['repo']
+    publicRoutes = ['/signed-out/*']
   } = options;
-  
+
   return {
     $schema: 'https://json.schemastore.org/staticwebapp.config.json',
     auth: {
       rolesSource: '/api/AuthorizeRepositoryAccess',
       identityProviders: {
-        github: {
-          registration: {
-            clientIdSettingName,
-            clientSecretSettingName
-          },
-          login: {
-            scopes
-          }
-        }
+        github: {}
       }
     },
     routes: [
@@ -491,10 +480,11 @@ module.exports = createDefaultHandler();
 
 ## 必要な環境変数
 
-- `GITHUB_CLIENT_ID`: GitHub OAuth App Client ID
-- `GITHUB_CLIENT_SECRET`: GitHub OAuth App Client Secret
 - `GITHUB_REPO_OWNER`: リポジトリオーナー
 - `GITHUB_REPO_NAME`: リポジトリ名
+- `GITHUB_APP_ID`: GitHub App ID
+- `GITHUB_APP_INSTALLATION_ID`: GitHub App Installation ID
+- `GITHUB_APP_PRIVATE_KEY`: GitHub App Private Key (PEM文字列)
 
 ## カスタマイズ
 
@@ -1375,10 +1365,11 @@ fs.writeFileSync('staticwebapp.config.json', JSON.stringify(config, null, 2));
 #### 環境変数の変更なし
 
 以下の環境変数は引き続き必要です：
-- `GITHUB_CLIENT_ID`
-- `GITHUB_CLIENT_SECRET`
 - `GITHUB_REPO_OWNER`
 - `GITHUB_REPO_NAME`
+- `GITHUB_APP_ID`
+- `GITHUB_APP_INSTALLATION_ID`
+- `GITHUB_APP_PRIVATE_KEY`
 
 #### GitHub Actionsの更新
 
@@ -1781,7 +1772,7 @@ function setCachedAuth(accessToken, result) {
 ```javascript
 function validateEnvironmentVariables(env) {
   const sensitiveVars = [
-    'GITHUB_CLIENT_SECRET',
+    'GITHUB_APP_PRIVATE_KEY',
     'AZURE_STATIC_WEB_APPS_API_TOKEN'
   ];
   
@@ -1862,10 +1853,11 @@ Error: Missing required environment variables: GITHUB_REPO_OWNER, GITHUB_REPO_NA
   "IsEncrypted": false,
   "Values": {
     "FUNCTIONS_WORKER_RUNTIME": "node",
-    "GITHUB_CLIENT_ID": "your-client-id",
-    "GITHUB_CLIENT_SECRET": "your-client-secret",
     "GITHUB_REPO_OWNER": "your-org",
-    "GITHUB_REPO_NAME": "your-repo"
+    "GITHUB_REPO_NAME": "your-repo",
+    "GITHUB_APP_ID": "your-app-id",
+    "GITHUB_APP_INSTALLATION_ID": "your-installation-id",
+    "GITHUB_APP_PRIVATE_KEY": "your-pem-with-\\n"
   }
 }
 ```

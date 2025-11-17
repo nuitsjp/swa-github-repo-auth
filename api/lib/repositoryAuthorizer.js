@@ -1,4 +1,5 @@
-// 呼び出し元トークンで GitHub REST API を叩き、リポジトリアクセスを判定する。
+// GitHub App のインストールトークンを用いてユーザーのリポジトリ権限を判定する。
+const crypto = require('crypto');
 const axios = require('axios');
 const {
   DEFAULT_API_BASE_URL,
@@ -7,13 +8,36 @@ const {
   DEFAULT_USER_AGENT
 } = require('./config');
 
-function buildRepoUrl(apiBaseUrl, repoOwner, repoName) {
-  // API ベース URL をプレフィックス込みで組み立て、末尾スラッシュを除去する。
+function buildApiUrl(apiBaseUrl, resourcePath) {
   const base = new URL(apiBaseUrl || DEFAULT_API_BASE_URL);
   const normalizedPath = base.pathname.replace(/\/+$/, '');
   const pathPrefix = normalizedPath === '' || normalizedPath === '/' ? '' : normalizedPath;
-  // リポジトリエンドポイントの完全な URL を構築
-  return `${base.origin}${pathPrefix}/repos/${repoOwner}/${repoName}`;
+  return `${base.origin}${pathPrefix}${resourcePath}`;
+}
+
+function normalizePrivateKey(privateKey) {
+  if (typeof privateKey !== 'string') {
+    return privateKey;
+  }
+
+  return privateKey.replace(/\\n/g, '\n');
+}
+
+function createJwt(appId, privateKey) {
+  const now = Math.floor(Date.now() / 1000);
+  const header = { alg: 'RS256', typ: 'JWT' };
+  const payload = {
+    iat: now - 60,
+    exp: now + 8 * 60,
+    iss: appId
+  };
+
+  const encode = (obj) => Buffer.from(JSON.stringify(obj)).toString('base64url');
+  const signingInput = `${encode(header)}.${encode(payload)}`;
+  const signer = crypto.createSign('RSA-SHA256');
+  signer.update(signingInput);
+  const signature = signer.sign(privateKey, 'base64url');
+  return `${signingInput}.${signature}`;
 }
 
 function createRepositoryAuthorizer(options = {}) {
@@ -24,55 +48,115 @@ function createRepositoryAuthorizer(options = {}) {
     apiVersion = DEFAULT_API_VERSION,
     requestTimeoutMs = DEFAULT_TIMEOUT_MS,
     userAgent = DEFAULT_USER_AGENT,
+    appId,
+    installationId,
+    privateKey,
     httpClient = axios
   } = options;
 
+  const normalizedPrivateKey = normalizePrivateKey(privateKey);
+  let installationTokenCache = null;
+
+  async function getInstallationToken(logger) {
+    const info = logger.info || (() => {});
+    const warn = logger.warn || info;
+    const error = logger.error || info;
+
+    if (!appId || !installationId || !normalizedPrivateKey) {
+      warn('GitHub App credentials are not configured.');
+      return null;
+    }
+
+    const now = Date.now();
+    if (installationTokenCache && installationTokenCache.expiresAt > now + 60000) {
+      return installationTokenCache.token;
+    }
+
+    try {
+      const jwt = createJwt(appId, normalizedPrivateKey);
+      const url = buildApiUrl(apiBaseUrl, `/app/installations/${installationId}/access_tokens`);
+      const response = await httpClient.post(url, {}, {
+        timeout: requestTimeoutMs,
+        headers: {
+          Authorization: `Bearer ${jwt}`,
+          Accept: 'application/vnd.github+json',
+          'User-Agent': userAgent,
+          'X-GitHub-Api-Version': apiVersion
+        }
+      });
+
+      const expiresAt = new Date(response.data?.expires_at || 0).getTime();
+      const token = response.data?.token;
+      if (!token || !Number.isFinite(expiresAt)) {
+        warn('Failed to obtain installation access token.');
+        return null;
+      }
+
+      installationTokenCache = { token, expiresAt };
+      info('Obtained GitHub App installation token.');
+      return token;
+    } catch (err) {
+      const status = err?.response?.status;
+      error('Failed to create GitHub App installation token:', err?.message || err);
+      if (status) {
+        error(`GitHub App token endpoint responded with status ${status}.`);
+      }
+      return null;
+    }
+  }
+
   return {
-    async authorize(accessToken, logger = {}) {
-      // ロガーメソッドを安全に取得（未定義の場合は空関数）
+    async authorize(username, logger = {}) {
       const info = logger.info || (() => {});
       const warn = logger.warn || info;
       const error = logger.error || info;
 
-      // アクセストークンの存在を検証
-      if (!accessToken) {
-        warn('No access token supplied to repository authorizer.');
+      if (!username) {
+        warn('No GitHub username supplied to repository authorizer.');
         return false;
       }
 
-      // リポジトリ識別情報の存在を検証
       if (!repoOwner || !repoName) {
         warn('Repository identification is not configured.');
         return false;
       }
 
-      // GitHub API エンドポイント URL を構築
-      const repoUrl = buildRepoUrl(apiBaseUrl, repoOwner, repoName);
+      const installationToken = await getInstallationToken(logger);
+      if (!installationToken) {
+        warn('Unable to acquire installation token.');
+        return false;
+      }
+
+      const repoUrl = buildApiUrl(apiBaseUrl, `/repos/${repoOwner}/${repoName}/collaborators/${encodeURIComponent(username)}/permission`);
 
       try {
-        // GitHub REST API にリポジトリ情報を取得するリクエストを送信
-        await httpClient.get(repoUrl, {
+        const { data } = await httpClient.get(repoUrl, {
           timeout: requestTimeoutMs,
           headers: {
-            Authorization: `Bearer ${accessToken}`,
+            Authorization: `Bearer ${installationToken}`,
             Accept: 'application/vnd.github+json',
             'User-Agent': userAgent,
             'X-GitHub-Api-Version': apiVersion
           }
         });
 
-        // リクエストが成功したらアクセスを許可
-        return true;
+        const permission = data?.permission || 'none';
+        info(`GitHub permission check result for ${username}: ${permission}`);
+
+        if (permission !== 'none') {
+          return true;
+        }
+
+        warn(`Repository access denied for ${username}: no permission.`);
+        return false;
       } catch (err) {
         const status = err?.response?.status;
 
-        // 404/401/403 は明示的なアクセス拒否として扱う
-        if (status === 404 || status === 401 || status === 403) {
-          warn(`Repository access denied (${status}).`);
+        if (status === 404) {
+          warn(`Repository access denied for ${username}: not found (${status}).`);
           return false;
         }
 
-        // その他のエラーはログに記録して拒否
         error('GitHub API error while authorizing repository access:', err?.message || err);
         return false;
       }

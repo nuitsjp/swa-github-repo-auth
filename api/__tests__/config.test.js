@@ -16,7 +16,10 @@ describe('config helpers', () => {
       GITHUB_API_BASE_URL: 'https://ghe.example.com/api/v3/',
       GITHUB_API_VERSION: '2024-01-01 ',
       GITHUB_API_TIMEOUT_MS: '7000',
-      GITHUB_API_USER_AGENT: ' custom-agent '
+      GITHUB_API_USER_AGENT: ' custom-agent ',
+      GITHUB_APP_ID: ' 12345 ',
+      GITHUB_APP_INSTALLATION_ID: ' 67890 ',
+      GITHUB_APP_PRIVATE_KEY: ' -----BEGIN PRIVATE KEY----- ' 
     });
 
     expect(config).toEqual({
@@ -26,6 +29,9 @@ describe('config helpers', () => {
       apiVersion: '2024-01-01',
       requestTimeoutMs: 7000,
       userAgent: 'custom-agent',
+      appId: '12345',
+      installationId: '67890',
+      privateKey: '-----BEGIN PRIVATE KEY-----',
       missing: []
     });
   });
@@ -34,7 +40,10 @@ describe('config helpers', () => {
     // 任意の環境変数が無くても定数にフォールバック。
     const config = loadGitHubRepoConfig({
       GITHUB_REPO_OWNER: 'octocat',
-      GITHUB_REPO_NAME: 'demo'
+      GITHUB_REPO_NAME: 'demo',
+      GITHUB_APP_ID: '1',
+      GITHUB_APP_INSTALLATION_ID: '2',
+      GITHUB_APP_PRIVATE_KEY: 'key'
     });
 
     expect(config).toEqual({
@@ -44,6 +53,9 @@ describe('config helpers', () => {
       apiVersion: DEFAULT_API_VERSION,
       requestTimeoutMs: DEFAULT_TIMEOUT_MS,
       userAgent: DEFAULT_USER_AGENT,
+      appId: '1',
+      installationId: '2',
+      privateKey: 'key',
       missing: []
     });
   });
@@ -52,13 +64,19 @@ describe('config helpers', () => {
     // 必須環境変数の欠如を missing に記録する。
     const config = loadGitHubRepoConfig({});
 
-    expect(config.missing).toEqual(['GITHUB_REPO_OWNER', 'GITHUB_REPO_NAME']);
+    expect(config.missing).toEqual([
+      'GITHUB_REPO_OWNER',
+      'GITHUB_REPO_NAME',
+      'GITHUB_APP_ID',
+      'GITHUB_APP_INSTALLATION_ID',
+      'GITHUB_APP_PRIVATE_KEY'
+    ]);
   });
 
   it('throws when ensuring config without required values', () => {
     // ensureGitHubRepoConfig は必須値が無いと例外を投げる。
     expect(() => ensureGitHubRepoConfig({})).toThrow(
-      'Missing required GitHub repository configuration: GITHUB_REPO_OWNER, GITHUB_REPO_NAME'
+      'Missing required GitHub repository configuration: GITHUB_REPO_OWNER, GITHUB_REPO_NAME, GITHUB_APP_ID, GITHUB_APP_INSTALLATION_ID, GITHUB_APP_PRIVATE_KEY'
     );
   });
 
@@ -73,7 +91,10 @@ describe('config helpers', () => {
     // 必須値が揃えば正しくパースされた config を返す。
     const config = ensureGitHubRepoConfig({
       GITHUB_REPO_OWNER: 'octocat',
-      GITHUB_REPO_NAME: 'demo'
+      GITHUB_REPO_NAME: 'demo',
+      GITHUB_APP_ID: '1',
+      GITHUB_APP_INSTALLATION_ID: '2',
+      GITHUB_APP_PRIVATE_KEY: 'key'
     });
 
     expect(config.repoOwner).toBe('octocat');

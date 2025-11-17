@@ -1,5 +1,4 @@
 // エントリーポイント: 設定読み取り・プリンシパル抽出・リポジトリアクセス判定を束ねる。
-const axios = require('axios');
 const { loadGitHubRepoConfig } = require('../lib/config');
 const { extractGitHubPrincipal } = require('../lib/githubPrincipal');
 const { createRepositoryAuthorizer } = require('../lib/repositoryAuthorizer');
@@ -53,16 +52,17 @@ function createAuthorizeRepositoryAccessHandler(options = {}) {
         return;
       }
 
-      // アクセストークンが欠落している場合はアクセスを拒否
-      if (!principal.accessToken) {
-        logger.warn('GitHub principal missing access token, denying access.');
+      const userLogin = principal.userDetails || principal.userId;
+
+      if (!userLogin) {
+        logger.warn('GitHub principal missing username, denying access.');
         context.res = { status: 200, headers: { 'Content-Type': 'application/json' }, body: { roles: [] } };
         return;
       }
 
       // リポジトリへのアクセス権限を検証
-      const authorized = await authorizer.authorize(principal.accessToken, logger);
-      const userLabel = principal.userDetails || principal.userId || 'unknown';
+      const authorized = await authorizer.authorize(userLogin, logger);
+      const userLabel = userLogin || 'unknown';
 
       // 検証結果に応じてロールを割り当て
       if (authorized) {
@@ -85,8 +85,7 @@ const config = loadGitHubRepoConfig(process.env);
 
 // リポジトリ認可オブジェクトを生成
 const repositoryAuthorizer = createRepositoryAuthorizer({
-  ...config,
-  httpClient: axios
+  ...config
 });
 
 // ハンドラーを構築してエクスポート

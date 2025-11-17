@@ -1,3 +1,14 @@
+const mockSign = jest.fn().mockReturnValue('signature');
+const mockUpdate = jest.fn();
+const mockCreateSign = jest.fn(() => ({
+  update: mockUpdate,
+  sign: mockSign
+}));
+
+jest.mock('crypto', () => ({
+  createSign: mockCreateSign
+}));
+
 const {
   createRepositoryAuthorizer
 } = require('../lib/repositoryAuthorizer');
@@ -8,197 +19,262 @@ const {
 } = require('../lib/config');
 
 describe('createRepositoryAuthorizer', () => {
-  const repoOwner = 'octocat';
-  const repoName = 'demo';
+  const baseConfig = {
+    repoOwner: 'octocat',
+    repoName: 'demo',
+    appId: '1',
+    installationId: '2',
+    privateKey: '-----BEGIN PRIVATE KEY-----',
+    httpClient: null
+  };
+
   let httpClient;
   let logger;
 
   beforeEach(() => {
-    httpClient = { get: jest.fn() };
+    httpClient = {
+      get: jest.fn(),
+      post: jest.fn()
+    };
     logger = {
       info: jest.fn(),
       warn: jest.fn(),
       error: jest.fn()
     };
+    baseConfig.httpClient = httpClient;
+    mockSign.mockClear();
+    mockUpdate.mockClear();
+    mockCreateSign.mockClear();
   });
 
-  it('returns true when GitHub API resolves', async () => {
-    // GitHub への GET が成功したら true を返す。
-    httpClient.get.mockResolvedValue({ status: 200 });
-    const authorizer = createRepositoryAuthorizer({ repoOwner, repoName, httpClient });
+  function buildTokenResponse() {
+    return {
+      data: {
+        token: 'installation-token',
+        expires_at: new Date(Date.now() + 10 * 60 * 1000).toISOString()
+      }
+    };
+  }
 
-    const result = await authorizer.authorize('token', logger);
+  it('returns true when collaborator permission is not none', async () => {
+    httpClient.post.mockResolvedValue(buildTokenResponse());
+    httpClient.get.mockResolvedValue({ data: { permission: 'write' } });
+    const authorizer = createRepositoryAuthorizer({ ...baseConfig });
+
+    const result = await authorizer.authorize('octocat', logger);
 
     expect(result).toBe(true);
-    expect(httpClient.get).toHaveBeenCalledWith(
-      'https://api.github.com/repos/octocat/demo',
-      {
+    expect(httpClient.post).toHaveBeenCalledWith(
+      'https://api.github.com/app/installations/2/access_tokens',
+      {},
+      expect.objectContaining({
         timeout: DEFAULT_TIMEOUT_MS,
-        headers: {
-          Authorization: 'Bearer token',
-          Accept: 'application/vnd.github+json',
+        headers: expect.objectContaining({
+          Authorization: expect.stringMatching(/^Bearer\s.+/),
           'User-Agent': DEFAULT_USER_AGENT,
           'X-GitHub-Api-Version': DEFAULT_API_VERSION
-        }
-      }
+        })
+      })
+    );
+    expect(httpClient.get).toHaveBeenCalledWith(
+      'https://api.github.com/repos/octocat/demo/collaborators/octocat/permission',
+      expect.objectContaining({
+        timeout: DEFAULT_TIMEOUT_MS,
+        headers: expect.objectContaining({
+          Authorization: 'Bearer installation-token'
+        })
+      })
     );
   });
 
-  it('returns false and logs warning when repository config is missing', async () => {
-    // リポジトリ設定欠如は警告を出して false。
+  it('caches installation token until expiry buffer is reached', async () => {
+    httpClient.post.mockResolvedValue(buildTokenResponse());
+    httpClient.get.mockResolvedValue({ data: { permission: 'read' } });
+    const authorizer = createRepositoryAuthorizer({ ...baseConfig });
+
+    const first = await authorizer.authorize('octocat', logger);
+    const second = await authorizer.authorize('octocat', logger);
+
+    expect(first).toBe(true);
+    expect(second).toBe(true);
+    expect(httpClient.post).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns false and warns when permission is none', async () => {
+    httpClient.post.mockResolvedValue(buildTokenResponse());
+    httpClient.get.mockResolvedValue({ data: { permission: 'none' } });
+    const authorizer = createRepositoryAuthorizer({ ...baseConfig });
+
+    const result = await authorizer.authorize('octocat', logger);
+
+    expect(result).toBe(false);
+    expect(logger.warn).toHaveBeenCalledWith('Repository access denied for octocat: no permission.');
+  });
+
+  it('supports authorizing without providing a logger', async () => {
+    httpClient.post.mockResolvedValue(buildTokenResponse());
+    httpClient.get.mockResolvedValue({ data: { permission: 'read' } });
+    const authorizer = createRepositoryAuthorizer({ ...baseConfig });
+
+    await expect(authorizer.authorize('octocat')).resolves.toBe(true);
+  });
+
+  it('warns when GitHub username is missing', async () => {
+    const authorizer = createRepositoryAuthorizer({ ...baseConfig });
+
+    const result = await authorizer.authorize('', logger);
+
+    expect(result).toBe(false);
+    expect(logger.warn).toHaveBeenCalledWith('No GitHub username supplied to repository authorizer.');
+    expect(httpClient.post).not.toHaveBeenCalled();
+  });
+
+  it('warns when repository identification is not configured', async () => {
     const authorizer = createRepositoryAuthorizer({
+      ...baseConfig,
       repoOwner: '',
-      repoName: null,
-      httpClient
+      repoName: ''
     });
 
-    const result = await authorizer.authorize('token', logger);
+    const result = await authorizer.authorize('octocat', logger);
 
     expect(result).toBe(false);
     expect(logger.warn).toHaveBeenCalledWith('Repository identification is not configured.');
+    expect(httpClient.post).not.toHaveBeenCalled();
+  });
+
+  it('warns when GitHub App credentials are missing', async () => {
+    const authorizer = createRepositoryAuthorizer({
+      repoOwner: 'octocat',
+      repoName: 'demo',
+      httpClient
+    });
+
+    const result = await authorizer.authorize('octocat', logger);
+
+    expect(result).toBe(false);
+    expect(logger.warn).toHaveBeenCalledWith('GitHub App credentials are not configured.');
+    expect(logger.warn).toHaveBeenCalledWith('Unable to acquire installation token.');
+  });
+
+  it('returns false and warns on 404 collaborator response', async () => {
+    httpClient.post.mockResolvedValue(buildTokenResponse());
+    const error = new Error('not found');
+    error.response = { status: 404 };
+    httpClient.get.mockRejectedValue(error);
+    const authorizer = createRepositoryAuthorizer({ ...baseConfig });
+
+    const result = await authorizer.authorize('octocat', logger);
+
+    expect(result).toBe(false);
+    expect(logger.warn).toHaveBeenCalledWith('Repository access denied for octocat: not found (404).');
+  });
+
+  it('logs error for unexpected collaborator failures', async () => {
+    httpClient.post.mockResolvedValue(buildTokenResponse());
+    httpClient.get.mockRejectedValue(new Error('boom'));
+    const authorizer = createRepositoryAuthorizer({ ...baseConfig });
+
+    const result = await authorizer.authorize('octocat', logger);
+
+    expect(result).toBe(false);
+    expect(logger.error).toHaveBeenCalledWith(
+      'GitHub API error while authorizing repository access:',
+      'boom'
+    );
+  });
+
+  it('logs token creation failures and returns false', async () => {
+    httpClient.post.mockRejectedValue(new Error('token failure'));
+    const authorizer = createRepositoryAuthorizer({ ...baseConfig });
+
+    const result = await authorizer.authorize('octocat', logger);
+
+    expect(result).toBe(false);
+    expect(logger.error).toHaveBeenCalledWith(
+      'Failed to create GitHub App installation token:',
+      'token failure'
+    );
+    expect(logger.warn).toHaveBeenCalledWith('Unable to acquire installation token.');
+  });
+
+  it('warns when installation token response lacks token or expiry', async () => {
+    httpClient.post.mockResolvedValue({ data: {} });
+    const authorizer = createRepositoryAuthorizer({ ...baseConfig });
+
+    const result = await authorizer.authorize('octocat', logger);
+
+    expect(result).toBe(false);
+    expect(logger.warn).toHaveBeenCalledWith('Failed to obtain installation access token.');
+    expect(logger.warn).toHaveBeenCalledWith('Unable to acquire installation token.');
     expect(httpClient.get).not.toHaveBeenCalled();
   });
 
-  it('supports overriding GitHub API base URL, timeout, version and User-Agent', async () => {
-    // 任意の GitHub API 設定を上書きできる。
-    httpClient.get.mockResolvedValue({ status: 200 });
+  it('logs token endpoint status code when available', async () => {
+    const error = new Error('token failure');
+    error.response = { status: 500 };
+    httpClient.post.mockRejectedValue(error);
+    const authorizer = createRepositoryAuthorizer({ ...baseConfig });
+
+    const result = await authorizer.authorize('octocat', logger);
+
+    expect(result).toBe(false);
+    expect(logger.error).toHaveBeenCalledWith(
+      'GitHub App token endpoint responded with status 500.'
+    );
+  });
+
+  it('falls back to info logger when warn is missing', async () => {
+    httpClient.post.mockResolvedValue(buildTokenResponse());
+    httpClient.get.mockResolvedValue({ data: { permission: 'read' } });
+    const authorizer = createRepositoryAuthorizer({ ...baseConfig });
+    const fallbackLogger = { info: jest.fn() };
+
+    await authorizer.authorize('', fallbackLogger);
+
+    expect(fallbackLogger.info).toHaveBeenCalledWith('No GitHub username supplied to repository authorizer.');
+  });
+
+  it('normalizes private key escape sequences before signing', async () => {
+    httpClient.post.mockResolvedValue(buildTokenResponse());
+    httpClient.get.mockResolvedValue({ data: { permission: 'read' } });
     const authorizer = createRepositoryAuthorizer({
-      repoOwner,
-      repoName,
-      httpClient,
+      ...baseConfig,
+      privateKey: 'line1\\nline2'
+    });
+
+    await authorizer.authorize('octocat', logger);
+
+    expect(mockSign).toHaveBeenCalledWith('line1\nline2', 'base64url');
+  });
+
+  it('honors custom API base URL and timeout configuration', async () => {
+    httpClient.post.mockResolvedValue(buildTokenResponse());
+    httpClient.get.mockResolvedValue({ data: { permission: 'read' } });
+    const authorizer = createRepositoryAuthorizer({
+      ...baseConfig,
       apiBaseUrl: 'https://ghe.example.com/api/v3/',
       requestTimeoutMs: 1234,
       apiVersion: '2023-10-01',
       userAgent: 'custom-agent'
     });
 
-    const result = await authorizer.authorize('token', logger);
+    await authorizer.authorize('octocat', logger);
 
-    expect(result).toBe(true);
-    expect(httpClient.get).toHaveBeenCalledWith(
-      'https://ghe.example.com/api/v3/repos/octocat/demo',
+    expect(httpClient.post).toHaveBeenCalledWith(
+      'https://ghe.example.com/api/v3/app/installations/2/access_tokens',
+      {},
       expect.objectContaining({
         timeout: 1234,
         headers: expect.objectContaining({
-          'X-GitHub-Api-Version': '2023-10-01',
-          'User-Agent': 'custom-agent'
+          'User-Agent': 'custom-agent',
+          'X-GitHub-Api-Version': '2023-10-01'
         })
       })
     );
-  });
-
-  it('returns false and logs warning on 404 response', async () => {
-    // 404 応答なら警告して false。
-    const error = new Error('not found');
-    error.response = { status: 404 };
-    httpClient.get.mockRejectedValue(error);
-    const authorizer = createRepositoryAuthorizer({ repoOwner, repoName, httpClient });
-
-    const result = await authorizer.authorize('token', logger);
-
-    expect(result).toBe(false);
-    expect(logger.warn).toHaveBeenCalledWith('Repository access denied (404).');
-  });
-
-  it('returns false and logs warning on 401 response', async () => {
-    // 401 応答なら警告して false。
-    const error = new Error('unauthorized');
-    error.response = { status: 401 };
-    httpClient.get.mockRejectedValue(error);
-    const authorizer = createRepositoryAuthorizer({ repoOwner, repoName, httpClient });
-
-    const result = await authorizer.authorize('token', logger);
-
-    expect(result).toBe(false);
-    expect(logger.warn).toHaveBeenCalledWith('Repository access denied (401).');
-  });
-
-  it('returns false and logs warning on 403 response', async () => {
-    // 403 応答なら警告して false。
-    const error = new Error('forbidden');
-    error.response = { status: 403 };
-    httpClient.get.mockRejectedValue(error);
-    const authorizer = createRepositoryAuthorizer({ repoOwner, repoName, httpClient });
-
-    const result = await authorizer.authorize('token', logger);
-
-    expect(result).toBe(false);
-    expect(logger.warn).toHaveBeenCalledWith('Repository access denied (403).');
-  });
-
-  it('returns false and logs error for unexpected failures', async () => {
-    // 想定外エラーは error ログで false。
-    httpClient.get.mockRejectedValue(new Error('network down'));
-    const authorizer = createRepositoryAuthorizer({ repoOwner, repoName, httpClient });
-
-    const result = await authorizer.authorize('token', logger);
-
-    expect(result).toBe(false);
-    expect(logger.error).toHaveBeenCalledWith(
-      'GitHub API error while authorizing repository access:',
-      'network down'
+    expect(httpClient.get).toHaveBeenCalledWith(
+      'https://ghe.example.com/api/v3/repos/octocat/demo/collaborators/octocat/permission',
+      expect.objectContaining({ timeout: 1234 })
     );
-  });
-
-  it('falls back to raw error when message missing', async () => {
-    // message 無しのエラーでも生オブジェクトをログ。
-    httpClient.get.mockRejectedValue({ response: {} });
-    const authorizer = createRepositoryAuthorizer({ repoOwner, repoName, httpClient });
-
-    const result = await authorizer.authorize('token', logger);
-
-    expect(result).toBe(false);
-    expect(logger.error).toHaveBeenCalledWith(
-      'GitHub API error while authorizing repository access:',
-      expect.objectContaining({ response: {} })
-    );
-  });
-
-  it('falls back to info when warn logger is missing', async () => {
-    // warn が無ければ info にフォールバック。
-    const authorizer = createRepositoryAuthorizer({ repoOwner, repoName, httpClient });
-    const fallbackLogger = { info: jest.fn() };
-
-    await authorizer.authorize('', fallbackLogger);
-
-    expect(fallbackLogger.info).toHaveBeenCalledWith(
-      'No access token supplied to repository authorizer.'
-    );
-  });
-
-  it('logs unexpected errors through info fallback when error missing', async () => {
-    // error が無くても info で例外を記録。
-    httpClient.get.mockRejectedValue(new Error('down'));
-    const authorizer = createRepositoryAuthorizer({ repoOwner, repoName, httpClient });
-    const fallbackLogger = { info: jest.fn() };
-
-    const result = await authorizer.authorize('token', fallbackLogger);
-
-    expect(result).toBe(false);
-    expect(fallbackLogger.info).toHaveBeenCalledWith(
-      'GitHub API error while authorizing repository access:',
-      'down'
-    );
-  });
-
-  it('uses no-op logger when logger is not supplied', async () => {
-    // ロガー未指定でも無害に動作。
-    const authorizer = createRepositoryAuthorizer({ repoOwner, repoName, httpClient });
-
-    const result = await authorizer.authorize('');
-
-    expect(result).toBe(false);
-    expect(httpClient.get).not.toHaveBeenCalled();
-  });
-
-  it('returns false and logs warning when access token missing', async () => {
-    // アクセストークン欠如は警告して false。
-    const authorizer = createRepositoryAuthorizer({ repoOwner, repoName, httpClient });
-
-    const result = await authorizer.authorize('', logger);
-
-    expect(result).toBe(false);
-    expect(logger.warn).toHaveBeenCalledWith('No access token supplied to repository authorizer.');
-    expect(httpClient.get).not.toHaveBeenCalled();
   });
 });
