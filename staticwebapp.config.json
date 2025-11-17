@@ -5,6 +5,10 @@
   },
   "routes": [
     {
+      "route": "/.auth/*",
+      "allowedRoles": ["anonymous", "authenticated", "authorized"]
+    },
+    {
       "route": "/signed-out/*",
       "allowedRoles": ["anonymous", "authorized"]
     },
