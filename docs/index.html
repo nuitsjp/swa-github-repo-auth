@@ -32,18 +32,19 @@
   <div id="user-info" class="user-info"></div>
 
   <h1>📚 SWA + GitHub 認証サンプル</h1>
-  <p>Azure Static Web Apps (Standard) で特定リポジトリの read 権限を持つ GitHub ユーザーだけにドキュメントを配信するための最小構成サンプルです。</p>
+  <p>Azure Static Web Apps (Standard) で特定リポジトリのread権限を持つGitHubユーザーだけにドキュメントを配信するための最小構成サンプルです。</p>
+  <p><small>Last updated: 2025-11-18 (permissions test)</small></p>
 
   <section>
     <h2>サイトの目的</h2>
-    <p>対象リポジトリの閲覧権限をそのまま Web コンテンツに適用し、許可されたコラボレーターだけが資料を読めるようにします。</p>
+    <p>対象リポジトリの閲覧権限をそのままWebコンテンツに適用し、許可されたコラボレーターだけが資料を読めるようにします。</p>
   </section>
 
   <section>
     <h2>実現手段</h2>
     <ul>
-      <li>PowerShell スクリプト <code>scripts/New-SwaResources.ps1</code> で SWA リソースと GitHub OAuth 設定を自動作成します。</li>
-      <li>カスタムロールプロバイダー <code>/api/AuthorizeRepositoryAccess</code> が OAuth で得たアクセストークンを GitHub REST API へ照会し、権限がある場合だけ <code>authorized</code> ロールを返します。</li>
+      <li>PowerShell スクリプト <code>scripts/New-SwaResources.ps1</code> でSWAリソースとGitHub OAuth設定を自動作成します。</li>
+      <li>カスタムロールプロバイダー <code>/api/AuthorizeRepositoryAccess</code> がOAuthで得たアクセストークンをGitHub REST APIへ照会し、権限がある場合だけ <code>authorized</code> ロールを返します。</li>
     </ul>
     <p>詳細なセットアップや動作の流れは README を参照してください。</p>
   </section>
