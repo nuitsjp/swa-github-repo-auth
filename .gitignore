@@ -1,5 +1,6 @@
 SECRET.md
 SECRET.json
+*.pem
 
 # Local tooling artifacts
 .swa/
