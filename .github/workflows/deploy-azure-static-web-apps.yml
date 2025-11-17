@@ -40,7 +40,7 @@ jobs:
           # For more information regarding Static Web App workflow configurations, please visit: https://aka.ms/swaworkflowconfig
           app_location: "docs" # App source code path
           api_location: "api" # Api source code path
-          api_build_command: "NPM_CONFIG_INSTALL_LINKS=false npm ci --prefer-offline --omit=dev"
+          api_build_command: "npm ci --prefer-offline --omit=dev && PKG=$(npm pack ../packages/swa-github-auth | tail -1) && rm -f node_modules/@swa-github-repo-auth/swa-github-auth && npm install \"./$PKG\" --omit=dev"
           config_file_location: "." # Location of staticwebapp.config.json
           output_location: "" # Built app content directory - optional
           ###### End of Repository/Build Configurations ######
