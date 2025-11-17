@@ -33,13 +33,15 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '18'
-      - name: Prepare local package
+      - name: Build API
         run: |
-          cd packages/swa-github-auth
-          npm pack
+          cd api
+          npm ci --omit=dev
+          cd ../packages/swa-github-auth
+          PKG=$(npm pack | tail -1)
           cd ../../api
           mkdir -p node_modules/@swa-github-repo-auth/swa-github-auth
-          tar -xzf ../packages/swa-github-auth/swa-github-repo-auth-swa-github-auth-0.1.0.tgz -C node_modules/@swa-github-repo-auth/swa-github-auth --strip-components=1
+          tar -xzf ../packages/swa-github-auth/$PKG -C node_modules/@swa-github-repo-auth/swa-github-auth --strip-components=1
           rm ../packages/swa-github-auth/*.tgz
       - name: Build And Deploy
         id: builddeploy
@@ -52,6 +54,7 @@ jobs:
           # For more information regarding Static Web App workflow configurations, please visit: https://aka.ms/swaworkflowconfig
           app_location: "docs" # App source code path
           api_location: "api" # Api source code path
+          skip_api_build: true
           config_file_location: "." # Location of staticwebapp.config.json
           output_location: "" # Built app content directory - optional
           ###### End of Repository/Build Configurations ######
