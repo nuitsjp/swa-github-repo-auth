@@ -43,7 +43,7 @@
     <h2>実現手段</h2>
     <ul>
       <li>PowerShell スクリプト <code>scripts/New-SwaResources.ps1</code> でSWAリソースとGitHub OAuth設定を自動作成します。</li>
-      <li>カスタムロールプロバイダー <code>/api/AuthorizeRepositoryAccess</code> が OAuth で得たアクセストークンを GitHub REST API へ照会し、権限がある場合だけ <code>authorized</code> ロールを返します。</li>
+      <li>カスタムロールプロバイダー <code>/api/AuthorizeRepositoryAccess</code> がOAuthで得たアクセストークンをGitHub REST APIへ照会し、権限がある場合だけ <code>authorized</code> ロールを返します。</li>
     </ul>
     <p>詳細なセットアップや動作の流れは README を参照してください。</p>
   </section>
