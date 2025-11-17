@@ -5,7 +5,7 @@ const {
   DEFAULT_API_VERSION,
   DEFAULT_TIMEOUT_MS,
   DEFAULT_USER_AGENT
-} = require('../lib/config');
+} = require('@swa-github-repo-auth/swa-github-auth/lib/config');
 
 describe('config helpers', () => {
   it('loads configuration with sanitized values and defaults', () => {

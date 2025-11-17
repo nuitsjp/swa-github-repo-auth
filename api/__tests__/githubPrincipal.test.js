@@ -1,4 +1,4 @@
-const { extractGitHubPrincipal } = require('../lib/githubPrincipal');
+const { extractGitHubPrincipal } = require('@swa-github-repo-auth/swa-github-auth/lib/githubPrincipal');
 
 describe('extractGitHubPrincipal', () => {
   test('req.body.clientPrincipal から GitHub プリンシパルを抽出', () => {
