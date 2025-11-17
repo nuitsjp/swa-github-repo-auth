@@ -219,7 +219,7 @@ function Get-StaticWebAppGlobal {
     }
 
     $apps = $output | ConvertFrom-Json
-    if ($apps.Count -eq 0) {
+    if (-not $apps -or @($apps).Count -eq 0) {
         return $null
     }
 
