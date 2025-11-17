@@ -29,6 +29,17 @@ jobs:
         with:
           submodules: true
           lfs: false
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+      - name: Prepare local package
+        run: |
+          cd packages/swa-github-auth
+          npm pack
+          cd ../../api
+          npm install --save-exact $(npm pack ../packages/swa-github-auth | tail -1)
+          rm -f ../packages/swa-github-auth/*.tgz
       - name: Build And Deploy
         id: builddeploy
         uses: Azure/static-web-apps-deploy@v1
@@ -40,7 +51,6 @@ jobs:
           # For more information regarding Static Web App workflow configurations, please visit: https://aka.ms/swaworkflowconfig
           app_location: "docs" # App source code path
           api_location: "api" # Api source code path
-          api_build_command: "npm ci --prefer-offline --omit=dev && PKG=$(npm pack ../packages/swa-github-auth | tail -1) && mkdir -p node_modules/@swa-github-repo-auth && tar -xzf \"$PKG\" -C node_modules/@swa-github-repo-auth --strip-components=1 && rm \"$PKG\""
           config_file_location: "." # Location of staticwebapp.config.json
           output_location: "" # Built app content directory - optional
           ###### End of Repository/Build Configurations ######
