@@ -5,18 +5,6 @@
   },
   "routes": [
     {
-      "route": "/.auth/login/github",
-      "allowedRoles": ["anonymous", "authorized"]
-    },
-    {
-      "route": "/.auth/logout",
-      "allowedRoles": ["anonymous", "authorized"]
-    },
-    {
-      "route": "/.auth/*",
-      "allowedRoles": ["authorized"]
-    },
-    {
       "route": "/signed-out/*",
       "allowedRoles": ["anonymous", "authorized"]
     },
