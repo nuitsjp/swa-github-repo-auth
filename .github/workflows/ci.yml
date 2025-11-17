@@ -1,4 +1,4 @@
-name: CI
+name: CI and Deploy
 
 on:
   push:
@@ -7,9 +7,15 @@ on:
       - develop
       - feature/**
   pull_request:
+    types: [opened, synchronize, reopened, closed]
+    branches:
+      - main
+      - develop
+      - feature/**
 
 jobs:
-  validate-api:
+  ci:
+    if: github.event_name != 'pull_request' || github.event.action != 'closed'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -30,3 +36,69 @@ jobs:
 
       - name: Test
         run: npm test --workspace api
+
+  deploy:
+    name: Build and Deploy (main)
+    needs: ci
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          submodules: true
+          lfs: false
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+      - name: Build And Deploy
+        id: builddeploy
+        uses: Azure/static-web-apps-deploy@v1
+        with:
+          azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          action: "upload"
+          app_location: "docs"
+          api_location: "api"
+          api_build_command: "npm ci --omit=dev && PKG=$(npm pack ../packages/swa-github-auth | tail -1) && mkdir -p node_modules/@swa-github-repo-auth/swa-github-auth && tar -xzf \"$PKG\" -C node_modules/@swa-github-repo-auth/swa-github-auth --strip-components=1 && rm \"$PKG\""
+          config_file_location: "."
+          output_location: ""
+
+  deploy_pr_preview:
+    name: Build and Deploy (preview)
+    needs: ci
+    if: github.event_name == 'pull_request' && github.event.action != 'closed'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          submodules: true
+          lfs: false
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+      - name: Build And Deploy Preview
+        id: builddeploy-preview
+        uses: Azure/static-web-apps-deploy@v1
+        with:
+          azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          action: "upload"
+          app_location: "docs"
+          api_location: "api"
+          api_build_command: "npm ci --omit=dev && PKG=$(npm pack ../packages/swa-github-auth | tail -1) && mkdir -p node_modules/@swa-github-repo-auth/swa-github-auth && tar -xzf \"$PKG\" -C node_modules/@swa-github-repo-auth/swa-github-auth --strip-components=1 && rm \"$PKG\""
+          config_file_location: "."
+          output_location: ""
+
+  close_pr_preview:
+    if: github.event_name == 'pull_request' && github.event.action == 'closed'
+    runs-on: ubuntu-latest
+    name: Close Pull Request Environment
+    steps:
+      - name: Close Pull Request
+        id: closepullrequest
+        uses: Azure/static-web-apps-deploy@v1
+        with:
+          azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
+          action: "close"
