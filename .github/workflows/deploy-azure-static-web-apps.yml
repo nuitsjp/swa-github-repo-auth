@@ -35,9 +35,12 @@ jobs:
           node-version: '18'
       - name: Prepare local package
         run: |
-          cd api
-          PKG=$(npm pack ../packages/swa-github-auth | tail -1)
-          npm install --save-exact "./$PKG"
+          cd packages/swa-github-auth
+          npm pack
+          cd ../../api
+          mkdir -p node_modules/@swa-github-repo-auth/swa-github-auth
+          tar -xzf ../packages/swa-github-auth/swa-github-repo-auth-swa-github-auth-0.1.0.tgz -C node_modules/@swa-github-repo-auth/swa-github-auth --strip-components=1
+          rm ../packages/swa-github-auth/*.tgz
       - name: Build And Deploy
         id: builddeploy
         uses: Azure/static-web-apps-deploy@v1
