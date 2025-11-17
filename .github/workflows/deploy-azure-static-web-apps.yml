@@ -9,15 +9,6 @@ on:
       - 'api/**'
       - 'staticwebapp.config.json'
       - '.github/workflows/deploy-azure-static-web-apps.yml'
-  pull_request:
-    types: [opened, synchronize, reopened, closed]
-    branches:
-      - main
-    paths:
-      - 'docs/**'
-      - 'api/**'
-      - 'staticwebapp.config.json'
-      - '.github/workflows/deploy-azure-static-web-apps.yml'
   workflow_dispatch:
 
 permissions:
